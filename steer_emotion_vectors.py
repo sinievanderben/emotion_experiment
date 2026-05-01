@@ -32,7 +32,6 @@ import torch.nn as nn
 
 warnings.filterwarnings("ignore")
 
-# ─── Paths ────────────────────────────────────────────────────────────────────
 
 SCRIPT_DIR      = Path("/users/sinievdben/scratch/personal/emotion_experiment")
 VECTORS_DIR     = SCRIPT_DIR / "output/emotion_vectors"
@@ -54,7 +53,6 @@ STEER_EMOTIONS = [
 # Neutral prompt — deliberately bland so any emotional signal comes from steering
 NEUTRAL_PROMPT = "I sat down and thought about my day. It had been"
 
-# ─── NRC VAD lexicon ──────────────────────────────────────────────────────────
 
 def load_vad(csv_path: Path) -> Dict[str, Tuple[float, float]]:
     """Load {word: (valence, arousal)} from NRC VAD CSV."""
@@ -85,7 +83,6 @@ def score_text(text: str, vad: Dict[str, Tuple[float, float]]) -> Tuple[float, f
     return float(np.mean(vals)), float(np.mean(aros))
 
 
-# ─── SAE (inference only) ─────────────────────────────────────────────────────
 
 class BatchTopKSAE(nn.Module):
     def __init__(self, d_in: int, d_sae: int, k_per_sample: int, device: torch.device):
@@ -120,8 +117,6 @@ def load_sae(layer: int, sae_cfg: dict, device: torch.device) -> BatchTopKSAE:
     sae.eval()
     return sae
 
-
-# ─── Steering direction ───────────────────────────────────────────────────────
 
 def compute_steering_direction(
     emotion: str,
@@ -162,8 +157,6 @@ def compute_steering_direction(
     direction = direction / (direction.norm() + 1e-8)
     return direction.cpu()
 
-
-# ─── Generation with steering hook ───────────────────────────────────────────
 
 def generate_with_steering(
     model,
@@ -211,8 +204,6 @@ def generate_with_steering(
     output_ids = gen_ids[0][inputs["input_ids"].shape[1]:]
     return tokenizer.decode(output_ids, skip_special_tokens=True)
 
-
-# ─── Main experiment ──────────────────────────────────────────────────────────
 
 def run_steering_experiment(
     emotions: List[str],
@@ -316,13 +307,11 @@ def run_steering_experiment(
         del sae
         torch.cuda.empty_cache()
 
-    # ── Save raw results ──────────────────────────────────────────────────────
     results_path = output_dir / "steering_results.json"
     with open(results_path, "w") as f:
         json.dump(results, f, indent=2)
     print(f"\nRaw results → {results_path}")
 
-    # ── Aggregate: mean Δval per (emotion, layer) ─────────────────────────────
     summary = {}
     for r in results:
         key = (r["emotion"], r["layer"])
@@ -348,7 +337,6 @@ def run_steering_experiment(
                 row += "    -- "
         print(row)
 
-    # ── Cross-layer effect size ───────────────────────────────────────────────
     print("\nMean |Δvalence| per layer (effect size):")
     for layer in layers:
         delta_vals = [
@@ -359,7 +347,6 @@ def run_steering_experiment(
             print(f"  Layer {layer}: {np.mean(np.abs(delta_vals)):.3f} "
                   f"(n={len(delta_vals)})")
 
-    # ── Save summary ──────────────────────────────────────────────────────────
     summary_path = output_dir / "steering_summary.json"
     agg = {
         f"{e}__L{l}": {
@@ -373,8 +360,6 @@ def run_steering_experiment(
         json.dump(agg, f, indent=2)
     print(f"Summary → {summary_path}")
 
-
-# ─── Figures ──────────────────────────────────────────────────────────────────
 
 def plot_results(results_path: Path, output_dir: Path) -> None:
     import matplotlib
@@ -394,7 +379,6 @@ def plot_results(results_path: Path, output_dir: Path) -> None:
     layers   = sorted(set(r["layer"]   for r in results))
     emotions = sorted(set(r["emotion"] for r in results))
 
-    # ── Fig 5a: mean |Δvalence| per layer (bar chart) ─────────────────────────
     layer_effect = {}
     for layer in layers:
         deltas = [r["delta_val"] for r in results
@@ -417,7 +401,6 @@ def plot_results(results_path: Path, output_dir: Path) -> None:
         ax.text(bar.get_x() + bar.get_width()/2, y + 0.002, f"{y:.3f}",
                 ha="center", va="bottom", fontsize=7)
 
-    # ── Fig 5b: heatmap of mean Δvalence per (emotion, layer) ─────────────────
     ax = axes[1]
     mat = np.full((len(emotions), len(layers)), np.nan)
     for i, e in enumerate(emotions):
@@ -446,8 +429,6 @@ def plot_results(results_path: Path, output_dir: Path) -> None:
     plt.close(fig)
     print(f"  saved {out.name}")
 
-
-# ─── CLI ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
     parser = argparse.ArgumentParser()

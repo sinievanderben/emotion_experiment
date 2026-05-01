@@ -1,0 +1,198 @@
+# Emotion Vectors in LLMs
+
+Reproduction of [Anthropic's emotion vectors work](https://www.anthropic.com/research/emotional-representations) on two open-weight models:
+- **Apertus 8B** (`swiss-ai/Apertus-8B-Instruct-2509`) — residual stream
+- **Gemma 4 8B** (`google/gemma-4-E4B-it`) — residual stream
+
+The pipeline generates emotion-labeled stories, extracts hidden-state emotion vectors, validates them via activation steering, and analyzes their geometric structure.
+
+---
+
+## Pipeline Overview
+
+```
+1. generate_emotion_stories.py   # Generate stories per emotion (Apertus or Gemma)
+2. extract_emotion_vectors.py    # Extract activation vectors from model hidden states
+3. analyze_emotion_vectors.py    # PCA, UMAP, CKA analysis and figures
+4. analyze_cross_model_geometry.py  # Compare emotion geometry across models
+5. steer_emotion_vectors.py      # Causal validation via activation steering
+6. visualize_token_activations.py   # Token-level projection heatmaps
+```
+
+Each step has a corresponding SLURM batch script (`run_*.sbatch`) for running on a GPU cluster.
+
+---
+
+## Repository Structure
+
+```
+.
+├── prompts/
+│   ├── story_prompt.txt         # Template for story generation
+│   ├── emotions.txt             # List of 171 emotions
+│   ├── topics.txt               # Story topics
+│   └── neutral_texts.txt        # Neutral baseline texts
+├── generate_emotion_stories.py
+├── extract_emotion_vectors.py
+├── analyze_emotion_vectors.py
+├── analyze_cross_model_geometry.py
+├── steer_emotion_vectors.py
+├── visualize_token_activations.py
+├── sentences.json               # Test sentences for token-level visualization
+├── emotion_valence_arousal_nrc.csv  # NRC VAD lexicon (valence/arousal ratings)
+└── slurm/                       # SLURM job scripts for ETH cluster
+    ├── install_transformers_new.sbatch  # One-time: install transformers ≥4.51 for Gemma 4
+    ├── install_transformers_new.sh
+    ├── run_emotion_stories.sbatch
+    ├── run_emotion_stories_gemma.sbatch
+    ├── run_extract_emotion_vectors.sbatch
+    ├── run_extract_emotion_vectors_gemma.sbatch
+    ├── run_extract_vectors_apertus_gemstories.sbatch
+    ├── run_extract_vectors_gemma_gemstories.sbatch
+    ├── run_analyze_emotion_vectors.sbatch
+    ├── run_analyze_cross_model_gemstories.sbatch
+    ├── run_cross_model_geometry.sbatch
+    ├── run_steer_emotion_vectors.sbatch
+    └── run_visualize_token_activations.sbatch
+```
+
+---
+
+## Setup
+
+### Dependencies
+
+```bash
+pip install torch transformers>=4.51 numpy scipy scikit-learn matplotlib tqdm pandas umap-learn
+```
+
+> **Gemma 4 note:** Gemma 4 requires `transformers>=4.51`. On some HPC environments this conflicts with preinstalled numpy. Use `install_transformers_new.sh` / `.sbatch` to install a compatible version into a local path.
+
+### Hardcoded Paths
+
+The Python scripts and `.sbatch` files contain absolute paths (e.g. output directories, model cache paths) pointing to an ETH cluster environment. Before running, update the following in each script:
+
+| Script | Variable/Argument to update |
+|--------|-----------------------------|
+| `extract_emotion_vectors.py` | `--output_dir`, `--stories_file` defaults |
+| `steer_emotion_vectors.py` | `--output_dir`, `--stories_file` defaults |
+| `analyze_emotion_vectors.py` | `--vectors_dir`, `--output_dir` defaults |
+| `analyze_cross_model_geometry.py` | `--apertus_dir`, `--gemma_dir`, `--output_dir` defaults |
+| `visualize_token_activations.py` | `--output_dir` default |
+| `run_*.sbatch` | `--output`, `--error`, model cache paths |
+
+---
+
+## Step-by-Step Usage
+
+### 1. Generate Emotion Stories
+
+```bash
+# Using Apertus 8B
+python generate_emotion_stories.py \
+    --model swiss-ai/Apertus-8B-Instruct-2509 \
+    --output_dir output_apertus_stories \
+    --all_emotions
+
+# Using Gemma 4 8B
+python generate_emotion_stories.py \
+    --model google/gemma-4-E4B-it \
+    --output_dir output_gemma_stories \
+    --all_emotions
+```
+
+Pass `--resume` to continue from a checkpoint if the job was interrupted.
+
+### 2. Extract Emotion Vectors
+
+```bash
+# Apertus — residual stream
+python extract_emotion_vectors.py \
+    --model swiss-ai/Apertus-8B-Instruct-2509 \
+    --stories-file output_apertus_stories/stories.jsonl \
+    --output-dir output_apertus/emotion_vectors \
+    --layers 12 16 18 20 22 24 26 28 30
+
+# Gemma — residual stream
+python extract_emotion_vectors.py \
+    --model google/gemma-4-E4B-it \
+    --stories-file output_apertus_stories/stories.jsonl \
+    --output-dir output_gemma/emotion_vectors \
+    --layers 17 19 27 28 29
+```
+
+### 3. Analyze Emotion Vectors
+
+```bash
+python analyze_emotion_vectors.py \
+    --vectors_dir output_apertus/emotion_vectors \
+    --output_dir output_apertus/analysis \
+    --nrc_csv emotion_valence_arousal_nrc.csv
+```
+
+Produces: cosine similarity heatmap, PCA scatter, UMAP clustering, CKA matrix (PDF figures).
+
+### 4. Cross-Model Geometry Comparison
+
+```bash
+python analyze_cross_model_geometry.py \
+    --apertus_dir output_apertus/emotion_vectors \
+    --gemma_dir output_gemma/emotion_vectors \
+    --output_dir output_cross_model
+```
+
+### 5. Causal Validation (Steering)
+
+```bash
+python steer_emotion_vectors.py \
+    --model swiss-ai/Apertus-8B-Instruct-2509 \
+    --vectors-dir output_apertus/emotion_vectors \
+    --output-dir output_apertus/steering \
+    --all-layers \
+    --alpha 20 \
+    --n-samples 10
+```
+
+### 6. Token-Level Visualization
+
+```bash
+python visualize_token_activations.py \
+    --sentences_file sentences.json \
+    --apertus_vectors output_apertus/emotion_vectors \
+    --gemma_vectors output_gemma/emotion_vectors \
+    --output_dir output_token_viz
+```
+
+---
+
+## Cross-Condition Experiments
+
+To test whether emotion geometry is consistent across story generators (i.e., run Apertus on Gemma-generated stories or vice versa), use the dedicated sbatch scripts:
+
+- `run_extract_vectors_apertus_gemstories.sbatch` — Apertus processes Gemma-generated stories
+- `run_extract_vectors_gemma_gemstories.sbatch` — Gemma processes its own stories
+- `run_analyze_cross_model_gemstories.sbatch` — Compare geometry across conditions
+
+---
+
+## Running on SLURM (ETH Cluster)
+
+Update the `--output`, `--error`, and path variables in each `.sbatch` file, then submit:
+
+```bash
+sbatch slurm/install_transformers_new.sbatch   # once, for Gemma support
+sbatch slurm/run_emotion_stories.sbatch
+sbatch slurm/run_extract_emotion_vectors.sbatch
+sbatch slurm/run_analyze_emotion_vectors.sbatch
+```
+
+All jobs request 1–4 A100 GPUs and 32–64 GB RAM. See individual `.sbatch` files for resource requirements.
+
+---
+
+## Reference
+
+This project replicates the methodology from:
+
+> Lindsey et al. (2025). *Emotional Representations in LLMs*. Anthropic.  
+> https://www.anthropic.com/research/emotional-representations

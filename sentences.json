@@ -1,0 +1,38 @@
+[
+  {
+    "label": "joy_wedding",
+    "text": "She laughed and danced with pure joy, tears of happiness streaming down her face as she celebrated at the wedding reception.",
+    "primary_emotion": "joyful",
+    "comparison_emotions": ["excited", "happy", "ecstatic", "calm", "sad", "furious", "afraid", "bored"]
+  },
+  {
+    "label": "fear_darkness",
+    "text": "He froze in the doorway, heart hammering, as he heard footsteps creeping slowly through the pitch-black hallway toward him.",
+    "primary_emotion": "afraid",
+    "comparison_emotions": ["anxious", "panicked", "alarmed", "calm", "joyful", "bored", "content", "furious"]
+  },
+  {
+    "label": "anger_injustice",
+    "text": "She slammed her fist on the table, furious that they had once again dismissed her work without so much as reading it.",
+    "primary_emotion": "furious",
+    "comparison_emotions": ["angry", "outraged", "bitter", "calm", "joyful", "sad", "afraid", "content"]
+  },
+  {
+    "label": "sadness_loss",
+    "text": "He sat alone in the empty room, staring at the photograph, overwhelmed by grief for everything he had lost.",
+    "primary_emotion": "sad",
+    "comparison_emotions": ["gloomy", "depressed", "heartbroken", "melancholy", "calm", "joyful", "excited", "content"]
+  },
+  {
+    "label": "calm_nature",
+    "text": "She sat quietly by the lake, breathing in the cool morning air, feeling a deep and settled sense of peace wash over her.",
+    "primary_emotion": "calm",
+    "comparison_emotions": ["serene", "peaceful", "content", "at_ease", "excited", "furious", "afraid", "sad"]
+  },
+  {
+    "label": "excitement_news",
+    "text": "He could barely contain himself as he read the acceptance letter, jumping up and rushing to tell everyone the incredible news.",
+    "primary_emotion": "excited",
+    "comparison_emotions": ["joyful", "ecstatic", "thrilled", "happy", "calm", "sad", "afraid", "bored"]
+  }
+]

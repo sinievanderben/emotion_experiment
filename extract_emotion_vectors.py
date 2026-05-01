@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Extract emotion vectors from a causal LM (optionally with BatchTopK SAEs).
+Extract emotion vectors from a causal LM.
 
 For each emotion in the JSONL file:
   1. Tokenise stories and run them through the model in batches.
@@ -9,6 +9,7 @@ For each emotion in the JSONL file:
   4. Accumulate a masked token-level mean over all stories for that emotion.
   5. Save per-emotion / per-layer .npy files and a combined emotion_vectors.json.
 
+Note: currently not available.
 Usage (with SAEs):
     python extract_emotion_vectors.py --sae-config sae_config.json \
         [--model swiss-ai/Apertus-8B-Instruct-2509] \
@@ -43,20 +44,14 @@ from typing import Dict, List, Tuple
 
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
-# ─── Defaults ─────────────────────────────────────────────────────────────────
-
 DEFAULT_MODEL     = "swiss-ai/Apertus-8B-Instruct-2509"
 STORIES_FILE      = Path("/users/sinievdben/scratch/personal/emotion_experiment/output/stories.jsonl")
 OUTPUT_DIR        = Path("/users/sinievdben/scratch/personal/emotion_experiment/output/emotion_vectors")
 SAE_CONFIG_FILE   = Path("/users/sinievdben/scratch/personal/emotion_experiment/sae_config.json")
 NEUTRAL_TEXTS_FILE = Path("/users/sinievdben/scratch/personal/emotion_experiment/prompts/neutral_texts.txt")
 
-# Skip first TOKEN_OFFSET tokens when averaging — emotional content builds up
-# after the narrative is established (following Anthropic's methodology).
-TOKEN_OFFSET = 50
+TOKEN_OFFSET = 50 # follow anthropic 
 
-
-# ─── BatchTopK SAE ────────────────────────────────────────────────────────────
 
 class BatchTopKSAE(nn.Module):
     """
@@ -114,8 +109,6 @@ class BatchTopKSAE(nn.Module):
         return masked.view_as(z)
 
 
-# ─── SAE loading ──────────────────────────────────────────────────────────────
-
 def _resolve_sae_paths(layer: int, sae_cfg: dict) -> Tuple[Path, Path]:
     """
     Resolve sae_batchtopk_state.pt and sae_config.json for `layer` using the
@@ -169,8 +162,6 @@ def load_sae(layer: int, sae_cfg: dict, device: torch.device) -> BatchTopKSAE:
     return sae
 
 
-# ─── Numpy bridge ─────────────────────────────────────────────────────────────
-
 def _to_numpy(t: torch.Tensor) -> np.ndarray:
     """Convert tensor to numpy without using torch's numpy bridge.
 
@@ -179,8 +170,6 @@ def _to_numpy(t: torch.Tensor) -> np.ndarray:
     """
     return np.array(t.detach().cpu().tolist(), dtype=np.float32)
 
-
-# ─── Layer accessor ───────────────────────────────────────────────────────────
 
 def _get_layer(model: nn.Module, idx: int) -> nn.Module:
     """
@@ -205,8 +194,6 @@ def _get_layer(model: nn.Module, idx: int) -> nn.Module:
     )
 
 
-# ─── Main extraction ──────────────────────────────────────────────────────────
-
 def extract_emotion_vectors(
     stories_file: Path,
     output_dir: Path,
@@ -219,7 +206,6 @@ def extract_emotion_vectors(
 ) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # ── Load stories ──────────────────────────────────────────────────────────
     emotions_data: Dict[str, List[str]] = {}
     with open(stories_file) as f:
         for line in f:
@@ -232,7 +218,6 @@ def extract_emotion_vectors(
         f"({sum(len(v) for v in emotions_data.values())} stories total)"
     )
 
-    # ── Load model ────────────────────────────────────────────────────────────
     print(f"\nLoading model {model_name} ...")
     # Gemma 4's tokenizer_config has extra_special_tokens as a list; older
     # transformers expects a dict and calls .keys() on it.  Patch the base
@@ -256,12 +241,12 @@ def extract_emotion_vectors(
     )
     model.eval()
 
-    # ── Infer d_model from the loaded model ───────────────────────────────────
+    # infer d from the model 
     # Gemma 4 nests the text config; fall back to top-level for other models.
     cfg = model.config
     d_model = getattr(cfg, "hidden_size", None) or cfg.text_config.hidden_size
 
-    # ── Load SAEs (optional) ──────────────────────────────────────────────────
+    # load saes, if config provided. Currently not used 
     saes: Dict[int, BatchTopKSAE] = {}
     if sae_cfg is not None:
         print("\nLoading SAEs ...")
@@ -269,8 +254,7 @@ def extract_emotion_vectors(
     else:
         print("\nNo SAE config provided — extracting residual stream vectors only.")
 
-    # ── Accumulators: emotion → layer → (sum, token count) ──────────────────
-    # SAE feature activations (only when SAEs are loaded)
+    # emotion → layer → (sum, token count) for mean calculation at the end
     accum: Dict[str, Dict[int, torch.Tensor]] = {
         emotion: {l: torch.zeros(saes[l].d_sae) for l in layers}
         for emotion in emotions_data
@@ -285,7 +269,7 @@ def extract_emotion_vectors(
         for emotion in emotions_data
     }
 
-    # ── Process each emotion ──────────────────────────────────────────────────
+    # process each emotion 
     for emotion, stories in emotions_data.items():
         n = len(stories)
         print(f"\n[{emotion}]  {n} stories")
@@ -308,8 +292,6 @@ def extract_emotion_vectors(
             for layer_idx in layers:
                 def _make_hook(idx: int):
                     def _hook(module, inp, out):
-                        # Transformer layer output is (hidden_states, ...) or
-                        # just hidden_states depending on config.
                         hs = out[0] if isinstance(out, tuple) else out
                         captured[idx] = hs.detach().float()
                     return _hook
@@ -326,7 +308,6 @@ def extract_emotion_vectors(
             for h in hooks:
                 h.remove()
 
-            # Pass activations through SAEs, accumulate masked sums
             mask = inputs["attention_mask"]  # [B, S], 1 = real token
 
             for layer_idx in layers:
@@ -334,8 +315,6 @@ def extract_emotion_vectors(
                 B, S, D = hidden.shape
 
                 # Zero out padding AND first TOKEN_OFFSET tokens before accumulating.
-                # Emotional content becomes apparent only after the story is
-                # established; early tokens are dominated by narrative framing.
                 offset_mask = mask.clone()
                 offset_mask[:, :TOKEN_OFFSET] = 0
                 om = offset_mask.unsqueeze(-1).float()
@@ -355,7 +334,6 @@ def extract_emotion_vectors(
             if done % max(batch_size * 5, 20) == 0 or done == n:
                 print(f"  {done}/{n}")
 
-    # ── Compute means, save ───────────────────────────────────────────────────
     print("\nSaving ...")
     emotion_vectors: Dict[str, Dict[str, list]] = {}
 
@@ -397,7 +375,7 @@ def extract_emotion_vectors(
     print(f"  emotion_vectors.json  — combined {len(emotions_data)} emotions × {len(layers)} layers")
     print(f"  <emotion>/layer_<N>.npy  — individual arrays")
 
-    # ── Confound removal (Anthropic methodology) ──────────────────────────────
+    # confound removal via neutral texts (optional, only if NEUTRAL_TEXTS_FILE exists):
     # 1. Extract SAE activations on emotionally neutral texts.
     # 2. PCA → top components explaining 50% of variance (topic/style confounds).
     # 3. Project those components out of every emotion vector.
@@ -446,7 +424,6 @@ def _remove_confounds(
         neutral_texts = [line.strip() for line in f if line.strip()]
     print(f"  Loaded {len(neutral_texts)} neutral texts")
 
-    # ── Extract neutral activations ───────────────────────────────────────────
     neutral_vecs:       Dict[int, List[np.ndarray]] = {l: [] for l in layers}
     neutral_vecs_resid: Dict[int, List[np.ndarray]] = {l: [] for l in layers}
 
@@ -507,7 +484,7 @@ def _remove_confounds(
         done = batch_start + len(batch)
         print(f"  neutral texts: {done}/{len(neutral_texts)}")
 
-    # ── Per-layer PCA + projection (SAE space, only when SAEs are loaded) ────
+    # per-layer PCA + projection (SAE space, only when SAEs are loaded)
     for layer_idx in layers:
         if layer_idx not in saes or not neutral_vecs[layer_idx]:
             continue
@@ -533,7 +510,7 @@ def _remove_confounds(
 
         print(f"  layer {layer_idx} [SAE]:   projected vectors saved")
 
-    # ── Per-layer PCA + projection (residual stream) ──────────────────────────
+    # per-layer PCA + projection (residual stream)
     for layer_idx in layers:
         mat = np.stack(neutral_vecs_resid[layer_idx], axis=0)  # (n_neutral, d_model)
         mat = mat - mat.mean(axis=0, keepdims=True)
@@ -558,7 +535,7 @@ def _remove_confounds(
         print(f"  layer {layer_idx} [resid]: projected vectors saved")
 
 
-# ─── CLI ──────────────────────────────────────────────────────────────────────
+# command line stuff 
 
 def main() -> None:
     parser = argparse.ArgumentParser(

@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-Emotion vector analysis following the Anthropic emotion-vectors methodology,
-applied to Apertus 8B + BatchTopK SAEs.
+Emotion vector analysis following the Anthropic emotion-vectors methodology.
 
 Produces figures:
   fig1_cosine_similarity.pdf   — pairwise cosine sim heatmap (contrast vectors)
@@ -32,17 +31,13 @@ from sklearn.preprocessing import normalize
 
 warnings.filterwarnings("ignore")
 
-# ─── Paths ────────────────────────────────────────────────────────────────────
-
 SCRIPT_DIR  = Path("/users/sinievdben/scratch/personal/emotion_experiment")
 VECTORS_DIR = SCRIPT_DIR / "output/emotion_vectors"
 OUTPUT_DIR  = SCRIPT_DIR / "output/analysis"
 VAD_CSV     = SCRIPT_DIR / "emotion_valence_arousal_nrc.csv"
 
+# settings for Apertus 
 LAYERS = [12, 16, 17, 18, 19, 20]
-
-
-# ─── NRC VAD ratings ──────────────────────────────────────────────────────────
 
 def load_circumplex(csv_path: Path) -> dict[str, tuple[float, float]]:
     """
@@ -74,7 +69,6 @@ def lookup_vad(
     key = emotion.strip().lower().replace("_", " ")
     return circumplex.get(key)
 
-# ─── Style ────────────────────────────────────────────────────────────────────
 
 plt.rcParams.update({
     "font.family":       "sans-serif",
@@ -93,10 +87,6 @@ plt.rcParams.update({
 
 VALENCE_CMAP = plt.get_cmap("RdYlGn")
 
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Data loading
-# ═══════════════════════════════════════════════════════════════════════════════
 
 def load_vectors(
     vectors_dir: Path,
@@ -181,10 +171,7 @@ def contrast_vectors(mat: dict[int, np.ndarray]) -> dict[int, np.ndarray]:
     return {l: M - M.mean(axis=0, keepdims=True) for l, M in mat.items()}
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Figure 1 — Cosine similarity heatmap
-# ═══════════════════════════════════════════════════════════════════════════════
-
+# figure 1 
 def fig_cosine_heatmap(
     contrast: dict[int, np.ndarray],
     emotions: list[str],
@@ -221,10 +208,7 @@ def fig_cosine_heatmap(
     print(f"  saved {out_path.name}")
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Figure 2 — PCA + valence/arousal correlation
-# ═══════════════════════════════════════════════════════════════════════════════
-
+# figure 2
 def fig_pca(
     contrast: dict[int, np.ndarray],
     emotions: list[str],
@@ -311,10 +295,7 @@ def fig_pca(
     }
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Figure 3 — UMAP + k-means clustering
-# ═══════════════════════════════════════════════════════════════════════════════
-
+# figure 3
 def fig_umap(
     contrast: dict[int, np.ndarray],
     emotions: list[str],
@@ -384,10 +365,7 @@ def fig_umap(
         print(f"    C{cl}: {', '.join(members)}")
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Figure 4 — Cross-layer analysis
-# ═══════════════════════════════════════════════════════════════════════════════
-
+# ifigure 4 
 def _linear_cka(X: np.ndarray, Y: np.ndarray) -> float:
     """
     Linear CKA between two (n_samples, d) matrices.
@@ -509,10 +487,7 @@ def fig_cross_layer(
     }
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Summary statistics
-# ═══════════════════════════════════════════════════════════════════════════════
-
+# stats
 def compute_summary(
     raw: dict[int, dict[str, np.ndarray]],
     contrast: dict[int, np.ndarray],
@@ -540,10 +515,6 @@ def compute_summary(
         }
     return summary
 
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Main
-# ═══════════════════════════════════════════════════════════════════════════════
 
 def main() -> None:
     parser = argparse.ArgumentParser()
@@ -579,7 +550,7 @@ def main() -> None:
         json.dump(emotions, f)
     print(f"Saved contrast vectors → {contrast_dir}")
 
-    # ── Figure 1: Cosine heatmap ───────────────────────────────────────────────
+    # figure 1 heatmap
     print("\nFigure 1: cosine similarity heatmap ...")
     for l in args.layers:
         fig_cosine_heatmap(
@@ -589,7 +560,7 @@ def main() -> None:
         )
         print(f"  saved fig1_cosine_similarity_layer{l}.pdf")
 
-    # ── Figure 2: PCA ─────────────────────────────────────────────────────────
+    # figure 2 pca
     print("Figure 2: PCA + valence/arousal correlation ...")
     pca_results = {}
     for l in args.layers:
@@ -602,7 +573,7 @@ def main() -> None:
         print(f"  layer {l}: PC1↔valence r={r['pc1_valence_r']:.3f}  "
               f"PC2↔arousal r={r['pc2_arousal_r']:.3f}")
 
-    # ── Figure 3: UMAP ────────────────────────────────────────────────────────
+    # figure 3 umap
     print("Figure 3: UMAP + k-means ...")
     fig_umap(
         contrast, emotions, circumplex,
@@ -611,14 +582,14 @@ def main() -> None:
         out_path=args.output_dir / "fig3_umap.pdf",
     )
 
-    # ── Figure 4: Cross-layer ─────────────────────────────────────────────────
+    # figure 4 cross layer cka 
     print("Figure 4: cross-layer CKA + valence stability ...")
     cross_layer_results = fig_cross_layer(
         contrast, emotions, circumplex, args.layers,
         out_path=args.output_dir / "fig4_cross_layer.pdf",
     )
 
-    # ── Summary stats ─────────────────────────────────────────────────────────
+    # summary stats
     summary = compute_summary(raw, contrast, emotions, args.layers)
     summary["pca"] = pca_results
     summary["cross_layer"] = cross_layer_results
@@ -630,7 +601,6 @@ def main() -> None:
         json.dump(summary, f, indent=2)
     print(f"\nSummary saved → {summary_path}")
 
-    # ── Console summary ────────────────────────────────────────────────────────
     print("\n" + "=" * 60)
     print("RESULTS SUMMARY")
     print("=" * 60)

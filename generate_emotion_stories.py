@@ -1,5 +1,5 @@
 """
-Emotion Story Dataset Generator for Apertus 8B
+Emotion Story Dataset Generator
  
 This script generates stories depicting characters experiencing specific emotions,
 following Anthropic's methodology from their emotion vectors paper.
@@ -21,11 +21,25 @@ from pathlib import Path
 from typing import List, Dict, Optional
 import torch
 from tqdm import tqdm
+
  
+EMOTION_CATEGORIES = {
+    "sadness": ["sad", "melancholy", "depressed", "heartbroken", "miserable", "grief-stricken", "lonely", "hurt", "unhappy", "dispirited", "gloomy"],
+    "fear": ["afraid", "scared", "terrified", "frightened", "panicked", "anxious", "nervous", "alarmed", "paranoid", "horrified", "unnerved"],
+    "anger": ["angry", "furious", "enraged", "irate", "hostile", "resentful", "bitter", "outraged", "mad", "irritated", "annoyed", "frustrated", "exasperated"],
+    "joy": ["happy", "joyful", "elated", "euphoric", "ecstatic", "delighted", "cheerful", "jubilant", "thrilled", "excited", "blissful"],
+    "surprise": ["surprised", "amazed", "astonished", "shocked", "dumbstruck", "bewildered", "mystified", "awestruck", "puzzled", "perplexed"],
+    "disgust": ["disgusted", "contemptuous", "disdainful", "scornful", "offended", "insulted"],
+    "calm": ["calm", "serene", "peaceful", "relaxed", "content", "at ease", "satisfied", "relieved"],
+    "energy": ["energized", "invigorated", "vibrant", "stimulated", "alert", "vigilant", "eager", "enthusiastic", "exuberant"],
+    "fatigue": ["tired", "weary", "sleepy", "sluggish", "listless", "worn out", "lazy", "bored"],
+    "social_positive": ["loving", "compassionate", "empathetic", "sympathetic", "grateful", "thankful", "kind", "proud"],
+    "social_negative": ["jealous", "envious", "resentful", "hateful", "vengeful", "vindictive", "spiteful", "hostile"],
+    "self_conscious": ["embarrassed", "ashamed", "guilty", "humiliated", "mortified", "self-conscious", "regretful", "remorseful"],
+    "uncertainty": ["unsettled", "uneasy", "restless", "troubled", "disturbed", "shaken", "rattled", "disoriented"],
+    "determination": ["defiant", "stubborn", "obstinate", "valiant", "triumphant", "self-confident"],
+}
  
-# ============================================================================
-# FILE LOADING
-# ============================================================================
  
 def load_prompt_template(prompt_file: str = "prompts/story_prompt.txt") -> str:
     """Load the story generation prompt template from file."""
@@ -46,33 +60,7 @@ def load_topics(topics_file: str = "prompts/topics.txt") -> List[str]:
         topics = [line.strip() for line in f if line.strip()]
     return topics
  
- 
-# ============================================================================
-# EMOTION CATEGORIES (for stratified sampling)
-# ============================================================================
- 
-EMOTION_CATEGORIES = {
-    "sadness": ["sad", "melancholy", "depressed", "heartbroken", "miserable", "grief-stricken", "lonely", "hurt", "unhappy", "dispirited", "gloomy"],
-    "fear": ["afraid", "scared", "terrified", "frightened", "panicked", "anxious", "nervous", "alarmed", "paranoid", "horrified", "unnerved"],
-    "anger": ["angry", "furious", "enraged", "irate", "hostile", "resentful", "bitter", "outraged", "mad", "irritated", "annoyed", "frustrated", "exasperated"],
-    "joy": ["happy", "joyful", "elated", "euphoric", "ecstatic", "delighted", "cheerful", "jubilant", "thrilled", "excited", "blissful"],
-    "surprise": ["surprised", "amazed", "astonished", "shocked", "dumbstruck", "bewildered", "mystified", "awestruck", "puzzled", "perplexed"],
-    "disgust": ["disgusted", "contemptuous", "disdainful", "scornful", "offended", "insulted"],
-    "calm": ["calm", "serene", "peaceful", "relaxed", "content", "at ease", "satisfied", "relieved"],
-    "energy": ["energized", "invigorated", "vibrant", "stimulated", "alert", "vigilant", "eager", "enthusiastic", "exuberant"],
-    "fatigue": ["tired", "weary", "sleepy", "sluggish", "listless", "worn out", "lazy", "bored"],
-    "social_positive": ["loving", "compassionate", "empathetic", "sympathetic", "grateful", "thankful", "kind", "proud"],
-    "social_negative": ["jealous", "envious", "resentful", "hateful", "vengeful", "vindictive", "spiteful", "hostile"],
-    "self_conscious": ["embarrassed", "ashamed", "guilty", "humiliated", "mortified", "self-conscious", "regretful", "remorseful"],
-    "uncertainty": ["unsettled", "uneasy", "restless", "troubled", "disturbed", "shaken", "rattled", "disoriented"],
-    "determination": ["defiant", "stubborn", "obstinate", "valiant", "triumphant", "self-confident"],
-}
- 
- 
-# ============================================================================
-# PROMPT FORMATTING
-# ============================================================================
- 
+
 def format_prompt(template: str, emotion: str, topic: str, n_stories: int = 3) -> str:
     """Format the prompt template with specific values."""
     return template.format(
@@ -84,7 +72,6 @@ def format_prompt(template: str, emotion: str, topic: str, n_stories: int = 3) -
  
 def parse_stories(response_text: str) -> List[str]:
     """Parse the generated response into individual stories."""
-    # Split on [story N] markers (case insensitive)
     stories = re.split(r'\[story\s*\d+\]', response_text, flags=re.IGNORECASE)
     # Filter empty strings and strip whitespace
     stories = [s.strip() for s in stories if s.strip()]
@@ -116,10 +103,6 @@ def select_stratified_emotions(
     return selected[:n_emotions]
  
  
-# ============================================================================
-# GENERATOR CLASS
-# ============================================================================
- 
 class EmotionStoryGenerator:
     """Generator class for emotion stories using Apertus."""
     
@@ -146,7 +129,6 @@ class EmotionStoryGenerator:
         self.temperature = temperature
         self.top_p = top_p
         
-        # Load external files
         self.prompt_template = load_prompt_template(prompt_file)
         self.all_emotions = load_emotions(emotions_file)
         self.all_topics = load_topics(topics_file)
@@ -154,7 +136,6 @@ class EmotionStoryGenerator:
         print(f"Loaded {len(self.all_emotions)} emotions from {emotions_file}")
         print(f"Loaded {len(self.all_topics)} topics from {topics_file}")
         
-        # Create output directory
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
         # Paths for saving
@@ -162,7 +143,6 @@ class EmotionStoryGenerator:
         self.checkpoint_file = self.output_dir / "checkpoint.json"
         self.metadata_file = self.output_dir / "metadata.json"
         
-        # Model and tokenizer (loaded lazily)
         self.model = None
         self.tokenizer = None
     
@@ -199,7 +179,6 @@ class EmotionStoryGenerator:
             add_generation_prompt=True,
         )
         
-        # Tokenize
         model_inputs = self.tokenizer([text], return_tensors="pt").to(self.model.device)
         
         # Generate
@@ -213,11 +192,9 @@ class EmotionStoryGenerator:
                 pad_token_id=self.tokenizer.eos_token_id,
             )
         
-        # Decode
+        # Decode and parse 
         output_ids = generated_ids[0][len(model_inputs.input_ids[0]):]
         response = self.tokenizer.decode(output_ids, skip_special_tokens=True)
-        
-        # Parse stories
         stories = parse_stories(response)
         
         return {
@@ -292,18 +269,13 @@ class EmotionStoryGenerator:
         
         # Set random seed for reproducibility
         random.seed(seed)
-        
-        # Load model
         self.load_model()
-        
-        # Save metadata
         self.save_metadata(emotions, topics)
         
         # Load checkpoint if resuming
         completed = self.load_checkpoint() if resume else set()
         print(f"Resuming from checkpoint: {len(completed)} pairs already completed")
         
-        # Create all emotion-topic pairs
         pairs = []
         for emotion in emotions:
             # Sample topics for this emotion
@@ -346,10 +318,6 @@ class EmotionStoryGenerator:
             print(f"  Failed pairs saved to: {failed_file}")
  
  
-# ============================================================================
-# UTILITY FUNCTIONS
-# ============================================================================
- 
 def load_stories(stories_file: str) -> List[Dict]:
     """Load stories from JSONL file."""
     stories = []
@@ -381,7 +349,6 @@ def print_statistics(stories_file: str):
     emotions = set(item["emotion"] for item in data)
     topics = set(item["topic"] for item in data)
     
-    # Stories per emotion
     by_emotion = {}
     for item in data:
         emotion = item["emotion"]
@@ -398,18 +365,12 @@ def print_statistics(stories_file: str):
     print(f"  Max: {max(by_emotion.values())} ({max(by_emotion, key=by_emotion.get)})")
  
  
-# ============================================================================
-# MAIN
-# ============================================================================
- 
 def main():
     parser = argparse.ArgumentParser(description="Generate emotion story dataset")
     
-    # Output
     parser.add_argument("--output_dir", type=str, default="./emotion_stories",
                         help="Output directory for stories")
     
-    # Input files
     parser.add_argument("--prompt_file", type=str, default="prompts/story_prompt.txt",
                         help="Path to prompt template file")
     parser.add_argument("--emotions_file", type=str, default="prompts/emotions.txt",
@@ -417,17 +378,14 @@ def main():
     parser.add_argument("--topics_file", type=str, default="prompts/topics.txt",
                         help="Path to topics list file")
     
-    # Model
     parser.add_argument("--model_name", type=str, default="swiss-ai/Apertus-8B-Instruct-2509",
                         help="Model name or path")
     
-    # Emotion selection
     parser.add_argument("--all_emotions", action="store_true",
                         help="Use all emotions from file")
     parser.add_argument("--emotions_subset", type=int, default=None,
                         help="Use stratified subset of N emotions")
     
-    # Generation params
     parser.add_argument("--stories_per_prompt", type=int, default=3,
                         help="Number of stories to generate per prompt")
     parser.add_argument("--prompts_per_emotion", type=int, default=3,
@@ -439,7 +397,6 @@ def main():
     parser.add_argument("--top_p", type=float, default=0.95,
                         help="Top-p sampling")
     
-    # Other
     parser.add_argument("--resume", action="store_true",
                         help="Resume from checkpoint")
     parser.add_argument("--seed", type=int, default=42,
@@ -449,12 +406,10 @@ def main():
     
     args = parser.parse_args()
     
-    # If just printing stats
     if args.stats:
         print_statistics(args.stats)
         return
     
-    # Create generator (loads emotions/topics from files)
     generator = EmotionStoryGenerator(
         model_name=args.model_name,
         output_dir=args.output_dir,
@@ -468,7 +423,6 @@ def main():
         top_p=args.top_p,
     )
     
-    # Select emotions
     if args.emotions_subset:
         emotions = select_stratified_emotions(
             generator.all_emotions, 
@@ -480,7 +434,6 @@ def main():
         emotions = generator.all_emotions
         print(f"Using all {len(emotions)} emotions")
     
-    # Run generation
     generator.run(
         emotions=emotions,
         topics=generator.all_topics,
@@ -488,7 +441,6 @@ def main():
         seed=args.seed,
     )
     
-    # Print final statistics
     print_statistics(str(generator.stories_file))
  
  

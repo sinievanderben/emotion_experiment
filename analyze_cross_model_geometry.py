@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Cross-model geometry analysis: Gemma 4 8B vs Apertus 8B.
+Cross-model geometry analysis: Gemma 4 E4B vs Apertus 8B.
 
 Figures produced in OUTPUT_DIR:
   fig_valence_trajectory.pdf   — PC1↔valence r across layers, both models

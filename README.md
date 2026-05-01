@@ -1,10 +1,12 @@
 # Emotion Vectors in LLMs
 
-Reproduction of [Anthropic's emotion vectors work](https://www.anthropic.com/research/emotional-representations) on two open-weight models:
+Reproduction of [Anthropic's emotion vectors work](https://transformer-circuits.pub/2026/emotions/index.html) on two open-weight models:
 - **Apertus 8B** (`swiss-ai/Apertus-8B-Instruct-2509`) — residual stream
-- **Gemma 4 8B** (`google/gemma-4-E4B-it`) — residual stream
+- **Gemma 4 E4B** (`google/gemma-4-E4B-it`) — residual stream
 
 The pipeline generates emotion-labeled stories, extracts hidden-state emotion vectors, validates them via activation steering, and analyzes their geometric structure.
+
+The method in this repository follows descriptions given by Anthropic's research and uses the prompts and emotions provided by them. 
 
 ---
 
@@ -38,9 +40,9 @@ Each step has a corresponding SLURM batch script (`run_*.sbatch`) for running on
 ├── analyze_cross_model_geometry.py
 ├── steer_emotion_vectors.py
 ├── visualize_token_activations.py
-├── sentences.json               # Test sentences for token-level visualization
+├── sentences.json                   # Test sentences for token-level visualization
 ├── emotion_valence_arousal_nrc.csv  # NRC VAD lexicon (valence/arousal ratings)
-└── slurm/                       # SLURM job scripts for ETH cluster
+└── slurm/                       
     ├── install_transformers_new.sbatch  # One-time: install transformers ≥4.51 for Gemma 4
     ├── install_transformers_new.sh
     ├── run_emotion_stories.sbatch
@@ -94,7 +96,7 @@ python generate_emotion_stories.py \
     --output_dir output_apertus_stories \
     --all_emotions
 
-# Using Gemma 4 8B
+# Using Gemma 4 E4B
 python generate_emotion_stories.py \
     --model google/gemma-4-E4B-it \
     --output_dir output_gemma_stories \
@@ -190,9 +192,18 @@ All jobs request 1–4 A100 GPUs and 32–64 GB RAM. See individual `.sbatch` fi
 
 ---
 
-## Reference
+## Attribution
 
-This project replicates the methodology from:
+This repository is a research replication of Anthropic's emotion vectors work:
 
-> Lindsey et al. (2025). *Emotional Representations in LLMs*. Anthropic.  
-> https://www.anthropic.com/research/emotional-representations
+> Sofroniew, Kauvar, Saunders, Chen & et all. (2026). *Emotion Concepts and their Function in a Large Language Model*.  
+> https://transformer-circuits.pub/2026/emotions/index.html
+
+The following files originate from that work and are included here solely for
+reproducibility purposes:
+- `prompts/emotions.txt` — emotion list
+- `prompts/story_prompt.txt` — story generation prompt template
+- `prompts/topics.txt` — story topics
+
+No license is stated by the original authors. If you are the rights holder and
+have concerns about inclusion of these materials, please open an issue.

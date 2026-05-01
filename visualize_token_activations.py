@@ -53,10 +53,6 @@ plt.rcParams.update({
 })
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Model utilities  (reused from extract_emotion_vectors.py)
-# ═══════════════════════════════════════════════════════════════════════════════
-
 def _patch_gemma4_tokenizer():
     """Patch transformers so Gemma 4's list-valued extra_special_tokens loads."""
     from transformers.tokenization_utils_base import PreTrainedTokenizerBase
@@ -129,23 +125,17 @@ def get_token_activations(
 
     tokens = [tokenizer.decode([tok_id]) for tok_id in ids.tolist()]
 
-    # Drop BOS token (index 0) — it accumulates global context and dominates
-    # projections at shallow layers, masking token-level signal.
+    # Drop BOS token (index 0) 
     tokens = tokens[1:]
     acts   = acts[1:]
 
-    # L2-normalise each token so projections become cosine similarities (±1).
-    # This removes residual-stream magnitude differences between models and
+    # L2-normalise each token so projections become cosine similarities (±1).  removes residual-stream magnitude differences between models and
     # makes values directly comparable across models and layers.
     norms = np.linalg.norm(acts, axis=1, keepdims=True) + 1e-10
     acts  = acts / norms
 
     return tokens, acts
 
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Contrast vectors
-# ═══════════════════════════════════════════════════════════════════════════════
 
 def load_contrast_vectors(
     vectors_dir: Path,
@@ -187,10 +177,6 @@ def project_tokens(
         result[emo] = acts @ unit_vecs[idx]              # (n_tokens,)
     return result
 
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Figures
-# ═══════════════════════════════════════════════════════════════════════════════
 
 def _clean_token(tok: str) -> str:
     """Make token strings printable in figures."""
@@ -302,14 +288,12 @@ def fig_emotion_bar(
         fontsize=9,
     )
 
-    # Annotate values
     for bar, val in zip(bars, values):
         ypos = val + 0.001 if val >= 0 else val - 0.001
         va   = "bottom" if val >= 0 else "top"
         ax.text(bar.get_x() + bar.get_width() / 2, ypos,
                 f"{val:.3f}", ha="center", va=va, fontsize=7)
 
-    # Truncate sentence for subtitle
     short = sentence_text if len(sentence_text) < 80 else sentence_text[:77] + "..."
     fig.text(0.5, -0.02, f'"{short}"', ha="center", fontsize=7.5,
              style="italic", color="#555555")
@@ -394,10 +378,6 @@ def fig_combined_heatmaps(
     print(f"  saved {out_path.name}")
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Main
-# ═══════════════════════════════════════════════════════════════════════════════
-
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model",        type=str,  required=True)
@@ -413,21 +393,18 @@ def main() -> None:
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
-    # ── Load sentences ────────────────────────────────────────────────────────
+    # load sentences, model, contrast vectors
     sentences = json.loads(args.sentences.read_text())
     print(f"Loaded {len(sentences)} sentences from {args.sentences.name}")
 
-    # ── Load contrast vectors ─────────────────────────────────────────────────
     print(f"\nLoading contrast vectors from {args.vectors_dir} (layer {args.layer}) ...")
     emotion_names, unit_vecs = load_contrast_vectors(args.vectors_dir, args.layer)
     print(f"  {len(emotion_names)} emotion vectors  (d={unit_vecs.shape[1]})")
 
-    # ── Load model ────────────────────────────────────────────────────────────
     print()
     device   = torch.device(args.device)
     tokenizer, model = load_model(args.model, device)
 
-    # ── Process each sentence ─────────────────────────────────────────────────
     all_results = []
 
     for entry in sentences:
@@ -482,7 +459,6 @@ def main() -> None:
             "max_projections":  {e: float(p.max())  for e, p in proj_by_emotion.items()},
         })
 
-    # ── Combined multi-panel heatmap ──────────────────────────────────────────
     if all_results:
         print("\nGenerating combined heatmap figure ...")
         fig_combined_heatmaps(
@@ -490,7 +466,6 @@ def main() -> None:
             out_path=args.output_dir / "fig_combined_token_heatmaps.pdf",
         )
 
-    # ── Save projections JSON ─────────────────────────────────────────────────
     summary = [
         {k: v.tolist() if isinstance(v, np.ndarray) else v
          for k, v in r.items()}

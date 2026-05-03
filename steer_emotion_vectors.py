@@ -1,17 +1,10 @@
 #!/usr/bin/env python3
 """
-Causal validation of emotion vectors via activation steering.
+Experimental: activation steering as a causal check on emotion vectors.
 
-For each target emotion and each layer:
-  1. Project SAE contrast vector → residual-stream direction  (via W_dec)
-  2. Hook that layer during generation, add  α × direction  to every token
-  3. Generate N completions from a neutral prompt
-  4. Score emotional content with the NRC VAD lexicon
-  5. Compare steered vs baseline valence/arousal scores
-
-Cross-layer hypothesis test:
-  Layers 17-20 (stable geometry) should show stronger steering effect
-  than layers 12-16 (pre-transition geometry).
+NOTE: This script is not part of the main analysis pipeline and was not used
+in the paper. It is kept here as a rough prototype. Paths are hardcoded to an
+ETH cluster environment and will need updating before use.
 
 Usage:
     python3 steer_emotion_vectors.py [--layer 18] [--alpha 20] [--n-samples 10]
@@ -33,7 +26,8 @@ import torch.nn as nn
 warnings.filterwarnings("ignore")
 
 
-SCRIPT_DIR      = Path("/users/sinievdben/scratch/personal/emotion_experiment")
+# NOTE: update these paths before running
+SCRIPT_DIR      = Path("/path/to/emotion_experiment")
 VECTORS_DIR     = SCRIPT_DIR / "output/emotion_vectors"
 SAE_CONFIG_FILE = SCRIPT_DIR / "sae_config.json"
 VAD_CSV         = SCRIPT_DIR / "emotion_valence_arousal_nrc.csv"

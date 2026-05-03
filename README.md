@@ -4,7 +4,7 @@ Reproduction of [Anthropic's emotion vectors work](https://transformer-circuits.
 - **Apertus 8B** (`swiss-ai/Apertus-8B-Instruct-2509`) — residual stream
 - **Gemma 4 E4B** (`google/gemma-4-E4B-it`) — residual stream
 
-The pipeline generates emotion-labeled stories, extracts hidden-state emotion vectors, validates them via activation steering, and analyzes their geometric structure.
+The pipeline generates emotion-labeled stories, extracts hidden-state emotion vectors, and analyzes their geometric structure.
 
 The method in this repository follows descriptions given by Anthropic's research and uses the prompts and emotions provided by them. 
 
@@ -13,13 +13,14 @@ The method in this repository follows descriptions given by Anthropic's research
 ## Pipeline Overview
 
 ```
-1. generate_emotion_stories.py   # Generate stories per emotion (Apertus or Gemma)
-2. extract_emotion_vectors.py    # Extract activation vectors from model hidden states
-3. analyze_emotion_vectors.py    # PCA, UMAP, CKA analysis and figures
+1. generate_emotion_stories.py      # Generate stories per emotion (Apertus or Gemma)
+2. extract_emotion_vectors.py       # Extract activation vectors from model hidden states
+3. analyze_emotion_vectors.py       # PCA, UMAP, CKA analysis and figures
 4. analyze_cross_model_geometry.py  # Compare emotion geometry across models
-5. steer_emotion_vectors.py      # Causal validation via activation steering
-6. visualize_token_activations.py   # Token-level projection heatmaps
+5. visualize_token_activations.py   # Token-level projection heatmaps
 ```
+
+> `steer_emotion_vectors.py` is an experimental prototype (activation steering) that was not used in the paper. See [Experimental](#experimental-steering) below.
 
 Each step has a corresponding SLURM batch script (`run_*.sbatch`) for running on a GPU cluster.
 
@@ -54,7 +55,7 @@ Each step has a corresponding SLURM batch script (`run_*.sbatch`) for running on
     ├── run_analyze_emotion_vectors.sbatch
     ├── run_analyze_cross_model_gemstories.sbatch
     ├── run_cross_model_geometry.sbatch
-    ├── run_steer_emotion_vectors.sbatch
+    ├── run_steer_emotion_vectors.sbatch # still under construction 
     └── run_visualize_token_activations.sbatch
 ```
 
@@ -77,7 +78,7 @@ The Python scripts and `.sbatch` files contain absolute paths (e.g. output direc
 | Script | Variable/Argument to update |
 |--------|-----------------------------|
 | `extract_emotion_vectors.py` | `--output_dir`, `--stories_file` defaults |
-| `steer_emotion_vectors.py` | `--output_dir`, `--stories_file` defaults |
+| `steer_emotion_vectors.py` | `SCRIPT_DIR` constant at top of file (experimental, not used in paper) |
 | `analyze_emotion_vectors.py` | `--vectors_dir`, `--output_dir` defaults |
 | `analyze_cross_model_geometry.py` | `--apertus_dir`, `--gemma_dir`, `--output_dir` defaults |
 | `visualize_token_activations.py` | `--output_dir` default |
@@ -143,22 +144,10 @@ python analyze_cross_model_geometry.py \
     --output_dir output_cross_model
 ```
 
-### 5. Causal Validation (Steering)
+### 5. Token-Level Visualization
 
 ```bash
-python steer_emotion_vectors.py \
-    --model swiss-ai/Apertus-8B-Instruct-2509 \
-    --vectors-dir output_apertus/emotion_vectors \
-    --output-dir output_apertus/steering \
-    --all-layers \
-    --alpha 20 \
-    --n-samples 10
-```
-
-### 6. Token-Level Visualization
-
-```bash
-python visualize_token_activations.py \
+python3 visualize_token_activations.py \
     --sentences_file sentences.json \
     --apertus_vectors output_apertus/emotion_vectors \
     --gemma_vectors output_gemma/emotion_vectors \
@@ -177,7 +166,7 @@ To test whether emotion geometry is consistent across story generators (i.e., ru
 
 ---
 
-## Running on SLURM (ETH Cluster)
+## Running on SLURM 
 
 Update the `--output`, `--error`, and path variables in each `.sbatch` file, then submit:
 
@@ -189,6 +178,14 @@ sbatch slurm/run_analyze_emotion_vectors.sbatch
 ```
 
 All jobs request 1–4 A100 GPUs and 32–64 GB RAM. See individual `.sbatch` files for resource requirements.
+
+---
+
+## Experimental: Steering
+
+`steer_emotion_vectors.py` and `slurm/run_steer_emotion_vectors.sbatch` are **not part of the paper** and were not used in the analysis. The script was a rough prototype for causal validation via activation steering (adding a scaled emotion direction to the residual stream during generation and scoring output with the NRC VAD lexicon). It ran once on Apertus and produced output in `output_apertus/steering/`, but was never developed further.
+
+The script requires updating the hardcoded paths at the top before it can be run in a different environment.
 
 ---
 

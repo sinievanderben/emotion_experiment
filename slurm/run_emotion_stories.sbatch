@@ -12,10 +12,6 @@
 # Stop on errors
 set -eo pipefail
 
-# ============================================================================
-# Configuration
-# ============================================================================
-
 SCRIPT_DIR=$(cd "$(dirname "$0")"; pwd)
 OUTPUT_DIR="${SCRIPT_DIR}/output"
 LOGS_DIR="${SCRIPT_DIR}/logs"
@@ -34,13 +30,7 @@ PROMPTS_PER_EMOTION=3
 MAX_NEW_TOKENS=2048
 TEMPERATURE=0.8
 
-# Emotion selection (comment out one)
-# EMOTION_FLAG="--all_emotions"           # All 171 emotions (~6 hours)
-EMOTION_FLAG="--all_emotions"       # Stratified 80 (~3 hours)
-
-# ============================================================================
-# SLURM Info
-# ============================================================================
+EMOTION_FLAG="--all_emotions"       
 
 echo "=============================================="
 echo "[slurm] Job: $SLURM_JOB_NAME ($SLURM_JOB_ID)"
@@ -48,10 +38,6 @@ echo "[slurm] Node: $(hostname)"
 echo "[slurm] GPUs: $SLURM_GPUS_PER_NODE"
 echo "[slurm] Time limit: $SLURM_TIMELIMIT"
 echo "=============================================="
-
-# ============================================================================
-# Setup
-# ============================================================================
 
 # Create output directories
 mkdir -p "${OUTPUT_DIR}"
@@ -63,10 +49,6 @@ echo "[config] Output: $OUTPUT_DIR"
 echo "[config] Stories per prompt: $STORIES_PER_PROMPT"
 echo "[config] Prompts per emotion: $PROMPTS_PER_EMOTION"
 echo "[config] Emotion selection: $EMOTION_FLAG"
-
-# ============================================================================
-# Run Generation
-# ============================================================================
 
 echo ""
 echo "[generation] Starting emotion story generation"
@@ -94,10 +76,6 @@ srun --export=ALL bash -lc "
 echo ""
 echo "[generation] Completed"
 echo "[generation] Output saved to: ${OUTPUT_DIR}"
-
-# ============================================================================
-# Print Statistics
-# ============================================================================
 
 echo ""
 echo "[stats] Dataset statistics:"

@@ -16,8 +16,7 @@ The method in this repository follows descriptions given by Anthropic's research
 1. generate_emotion_stories.py      # Generate stories per emotion (Apertus or Gemma)
 2. extract_emotion_vectors.py       # Extract activation vectors from model hidden states
 3. analyze_emotion_vectors.py       # PCA, UMAP, CKA analysis and figures
-4. analyze_cross_model_geometry.py  # Compare emotion geometry across models
-5. visualize_token_activations.py   # Token-level projection heatmaps
+4. analyze_cross_model_geometry.py  # Compare emotions across models
 ```
 
 > `steer_emotion_vectors.py` is an experimental prototype (activation steering) that was not used in the paper. See [Experimental](#experimental-steering) below.
@@ -47,11 +46,12 @@ The Python scripts and `.sbatch` files contain absolute paths (e.g. output direc
 | `extract_emotion_vectors.py` | `--output_dir`, `--stories_file` defaults |
 | `steer_emotion_vectors.py` | `SCRIPT_DIR` constant at top of file (experimental, not used in paper) |
 | `analyze_emotion_vectors.py` | `--vectors_dir`, `--output_dir` defaults |
-| `analyze_cross_model_geometry.py` | `--apertus_dir`, `--gemma_dir`, `--output_dir` defaults |
-| `visualize_token_activations.py` | `--output_dir` default |
+| `analyze_cross_model_geometry_apstories.py` | `--apertus_dir`, `--gemma_dir`, `--output_dir` defaults |
 | `run_*.sbatch` | `--output`, `--error`, model cache paths |
 
 ---
+
+The difference between `analyze_emotion_vectors.py` and `analyze_cross_model_geometry_apstories.py` is that the first script analyses one model at a time and produces visuals for one model, while the other does both at the same time. 
 
 ## Step-by-Step Usage
 

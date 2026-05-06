@@ -26,41 +26,6 @@ Each step has a corresponding SLURM batch script (`run_*.sbatch`) for running on
 
 ---
 
-## Repository Structure
-
-```
-.
-├── prompts/
-│   ├── story_prompt.txt         # Template for story generation
-│   ├── emotions.txt             # List of 171 emotions
-│   ├── topics.txt               # Story topics
-│   └── neutral_texts.txt        # Neutral baseline texts
-├── generate_emotion_stories.py
-├── extract_emotion_vectors.py
-├── analyze_emotion_vectors.py
-├── analyze_cross_model_geometry.py
-├── steer_emotion_vectors.py
-├── visualize_token_activations.py
-├── sentences.json                   # Test sentences for token-level visualization
-├── emotion_valence_arousal_nrc.csv  # NRC VAD lexicon (valence/arousal ratings)
-└── slurm/                       
-    ├── install_transformers_new.sbatch  # One-time: install transformers ≥4.51 for Gemma 4
-    ├── install_transformers_new.sh
-    ├── run_emotion_stories.sbatch
-    ├── run_emotion_stories_gemma.sbatch
-    ├── run_extract_emotion_vectors.sbatch
-    ├── run_extract_emotion_vectors_gemma.sbatch
-    ├── run_extract_vectors_apertus_gemstories.sbatch
-    ├── run_extract_vectors_gemma_gemstories.sbatch
-    ├── run_analyze_emotion_vectors.sbatch
-    ├── run_analyze_cross_model_gemstories.sbatch
-    ├── run_cross_model_geometry.sbatch
-    ├── run_steer_emotion_vectors.sbatch # still under construction 
-    └── run_visualize_token_activations.sbatch
-```
-
----
-
 ## Setup
 
 ### Dependencies
@@ -68,6 +33,8 @@ Each step has a corresponding SLURM batch script (`run_*.sbatch`) for running on
 ```bash
 pip install torch transformers>=4.51 numpy scipy scikit-learn matplotlib tqdm pandas umap-learn
 ```
+
+If you run the code on a cluster, please create an environment where you can install all the required packages. 
 
 > **Gemma 4 note:** Gemma 4 requires `transformers>=4.51`. On some HPC environments this conflicts with preinstalled numpy. Use `install_transformers_new.sh` / `.sbatch` to install a compatible version into a local path.
 
@@ -108,6 +75,7 @@ Pass `--resume` to continue from a checkpoint if the job was interrupted.
 
 ### 2. Extract Emotion Vectors
 
+
 ```bash
 # Apertus — residual stream
 python extract_emotion_vectors.py \
@@ -124,6 +92,20 @@ python extract_emotion_vectors.py \
     --layers 17 19 27 28 29
 ```
 
+You can extract emotion vectors using stories from Apertus or from Gemma. Change the path from 
+
+```bash
+output_apertus_stories/stories.jsonl
+```
+
+to 
+
+```bash
+output_gemma_stories/stories.jsonl
+```
+
+Please also be aware of changing the name of ```output-dir```. 
+
 ### 3. Analyze Emotion Vectors
 
 ```bash
@@ -138,13 +120,17 @@ Produces: cosine similarity heatmap, PCA scatter, UMAP clustering, CKA matrix (P
 ### 4. Cross-Model Geometry Comparison
 
 ```bash
-python analyze_cross_model_geometry.py \
+python analyze_cross_model_geometry_apstories.py \
     --apertus_dir output_apertus/emotion_vectors \
     --gemma_dir output_gemma/emotion_vectors \
     --output_dir output_cross_model
 ```
 
+Change the paths in case you want to analyse the results on stories produced by Gemma. 
+
 ### 5. Token-Level Visualization
+
+Under construction!!!
 
 ```bash
 python3 visualize_token_activations.py \

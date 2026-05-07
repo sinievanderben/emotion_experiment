@@ -20,7 +20,6 @@ echo "=============================================="
 
 OUTPUT_DIR="${SCRIPT_DIR}/output_gemma/analysis_resid_projected_higher_layers"
 
-
 srun --export=ALL bash -lc "
   cd ${SCRIPT_DIR}
 

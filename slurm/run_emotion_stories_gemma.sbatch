@@ -8,10 +8,11 @@
 #SBATCH --time=06:00:00
 #SBATCH --output=logs/%x-%j.out
 #SBATCH --error=logs/%x-%j.err
+# #SBATCH --environment=  # Set path to your SLURM environment TOML file
 
 set -eo pipefail
 
-SCRIPT_DIR=$(cd "$(dirname "$0")"; pwd)
+SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 OUTPUT_DIR="${SCRIPT_DIR}/output_gemma_stories"
 LOGS_DIR="${SCRIPT_DIR}/logs"
 
@@ -26,20 +27,15 @@ PROMPTS_PER_EMOTION=3
 MAX_NEW_TOKENS=2048
 TEMPERATURE=0.8
 
-echo "=============================================="
 echo "[slurm] Job: $SLURM_JOB_NAME ($SLURM_JOB_ID)"
 echo "[slurm] Node: $(hostname)"
 echo "[slurm] GPUs: $SLURM_GPUS_PER_NODE"
-echo "[slurm] Time limit: $SLURM_TIMELIMIT"
-echo "=============================================="
 
 mkdir -p "${OUTPUT_DIR}"
 mkdir -p "${LOGS_DIR}"
 
 echo "[config] Model: $MODEL_NAME"
 echo "[config] Output: $OUTPUT_DIR"
-echo "[config] Stories per prompt: $STORIES_PER_PROMPT"
-echo "[config] Prompts per emotion: $PROMPTS_PER_EMOTION"
 
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export PYTHONPATH="${SCRIPT_DIR}/pip_transformers_new:${PYTHONPATH}"

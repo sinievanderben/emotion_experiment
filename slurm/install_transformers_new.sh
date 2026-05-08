@@ -3,7 +3,7 @@
 # doesn't conflict with the aarch64 numpy in pip_packages.
 set -eo pipefail
 
-TARGET="$(cd "$(dirname "$0")"; pwd)/pip_transformers_new"
+TARGET="$(cd "$(dirname "$0")/.." && pwd)/pip_transformers_new"
 mkdir -p "${TARGET}"
 
 echo "Installing latest transformers into ${TARGET} ..."

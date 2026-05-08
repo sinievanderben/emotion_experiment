@@ -1,55 +1,44 @@
 #!/usr/bin/env python3
 """
-Experimental: activation steering as a causal check on emotion vectors.
+Small activation-steering experiment using pre-extracted emotion vectors.
 
-NOTE: This script is not part of the main analysis pipeline and was not used
-in the paper. It is kept here as a rough prototype. Paths are hardcoded to an
-ETH cluster environment and will need updating before use.
+For each (emotion, layer):
+  1. Load residual-stream emotion vectors, mean-centre → contrast vector
+  2. Hook that layer during generation, add α × unit_direction to every token
+  3. Generate N completions from a neutral prompt
+  4. Score emotional content with the NRC VAD lexicon
+  5. Compare steered vs baseline valence/arousal
 
 Usage:
-    python3 steer_emotion_vectors.py [--layer 18] [--alpha 20] [--n-samples 10]
-    python3 steer_emotion_vectors.py --all-layers   # sweep all 6 layers
+    python3 steer_emotion_vectors.py \
+        --model-name  swiss-ai/Apertus-8B-Instruct-2509 \
+        --vectors-dir output_apertus/emotion_vectors \
+        --layers      16 20 24 28 \
+        --emotions    "joyful" "depressed" "calm" "panicked" \
+        --alpha       20 \
+        --n-samples   5 \
+        --output-dir  output_steering/apertus_steering
 """
 
 import argparse
 import csv
 import json
-import os
 import warnings
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Optional
 
 import numpy as np
 import torch
-import torch.nn as nn
 
 warnings.filterwarnings("ignore")
 
+SCRIPT_DIR = Path(__file__).parent
+VAD_CSV    = SCRIPT_DIR / "emotion_valence_arousal_nrc.csv"
 
-# NOTE: update these paths before running
-SCRIPT_DIR      = Path("/path/to/emotion_experiment")
-VECTORS_DIR     = SCRIPT_DIR / "output/emotion_vectors"
-SAE_CONFIG_FILE = SCRIPT_DIR / "sae_config.json"
-VAD_CSV         = SCRIPT_DIR / "emotion_valence_arousal_nrc.csv"
-OUTPUT_DIR      = SCRIPT_DIR / "output/steering"
-MODEL_NAME      = "swiss-ai/Apertus-8B-Instruct-2509"
-
-LAYERS = [12, 16, 17, 18, 19, 20]
-
-# Emotions to steer — chosen for clear valence contrast and NRC coverage
-STEER_EMOTIONS = [
-    "ecstatic", "joyful", "excited", "grateful",   # high positive valence
-    "depressed", "grief-stricken", "gloomy", "furious",  # high negative valence
-    "calm", "serene",                               # low arousal
-    "panicked", "terrified",                        # high arousal
-]
-
-# Neutral prompt — deliberately bland so any emotional signal comes from steering
 NEUTRAL_PROMPT = "I sat down and thought about my day. It had been"
 
 
-def load_vad(csv_path: Path) -> Dict[str, Tuple[float, float]]:
-    """Load {word: (valence, arousal)} from NRC VAD CSV."""
+def load_vad(csv_path: Path) -> dict[str, tuple[float, float]]:
     vad = {}
     with open(csv_path, newline="") as f:
         for row in csv.DictReader(f):
@@ -59,97 +48,48 @@ def load_vad(csv_path: Path) -> Dict[str, Tuple[float, float]]:
     return vad
 
 
-def score_text(text: str, vad: Dict[str, Tuple[float, float]]) -> Tuple[float, float]:
-    """
-    Score a text by averaging VAD ratings of words that appear in the lexicon.
-    Returns (mean_valence, mean_arousal), or (nan, nan) if no words matched.
-    """
+def score_text(text: str, vad: dict) -> tuple[float, float]:
     words = text.lower().split()
     vals, aros = [], []
     for w in words:
         w = w.strip(".,!?\"'();:-")
         if w in vad:
-            v, a = vad[w]
-            vals.append(v)
-            aros.append(a)
+            vals.append(vad[w][0])
+            aros.append(vad[w][1])
     if not vals:
         return float("nan"), float("nan")
     return float(np.mean(vals)), float(np.mean(aros))
 
 
-
-class BatchTopKSAE(nn.Module):
-    def __init__(self, d_in: int, d_sae: int, k_per_sample: int, device: torch.device):
-        super().__init__()
-        self.W_enc = nn.Parameter(torch.empty(d_in,  d_sae, device=device))
-        self.W_dec = nn.Parameter(torch.empty(d_sae, d_in,  device=device))
-        self.b_enc = nn.Parameter(torch.zeros(d_sae,        device=device))
-        self.b_dec = nn.Parameter(torch.zeros(d_in,         device=device))
-        self.register_buffer("num_batches_not_active",
-                             torch.zeros(d_sae, dtype=torch.long, device=device))
-
-    def decode(self, z: torch.Tensor) -> torch.Tensor:
-        """z: [..., d_sae] → [..., d_in]"""
-        return z @ self.W_dec + self.b_dec
-
-
-def _resolve_sae_paths(layer: int, sae_cfg: dict) -> Tuple[Path, Path]:
-    sae_base = Path(sae_cfg["sae_base"])
-    layer_cfg = sae_cfg["layers"][str(layer)]
-    run_dir   = sae_base / layer_cfg["run"]
-    step      = layer_cfg["step"]
-    root      = run_dir if str(step) == "final" else run_dir / f"checkpoint_step_{int(step):06d}"
-    return root / "sae_batchtopk_state.pt", root / "sae_config.json"
-
-
-def load_sae(layer: int, sae_cfg: dict, device: torch.device) -> BatchTopKSAE:
-    state_path, config_path = _resolve_sae_paths(layer, sae_cfg)
-    with open(config_path) as f:
-        cfg = json.load(f)
-    sae = BatchTopKSAE(cfg["d_in"], cfg["d_sae"], cfg["k_per_sample"], device)
-    sae.load_state_dict(torch.load(state_path, map_location=device, weights_only=True))
-    sae.eval()
-    return sae
+def _layer_file(emo_dir: Path, layer: int) -> Optional[Path]:
+    for name in (f"layer_{layer}_resid_projected.npy", f"layer_{layer}_resid.npy"):
+        p = emo_dir / name
+        if p.exists():
+            return p
+    return None
 
 
 def compute_steering_direction(
     emotion: str,
     layer: int,
     vectors_dir: Path,
-    sae: BatchTopKSAE,
-    all_emotions: List[str],
+    all_emotions: list[str],
 ) -> torch.Tensor:
     """
-    Returns a unit steering vector in residual-stream space.
-
-    Steps:
-      1. Load raw SAE vectors for all emotions at this layer
-      2. Subtract cross-emotion mean  (contrast vector)
-      3. Select the target emotion's contrast vector
-      4. Project through W_dec to get residual-stream direction
-      5. Normalise to unit norm
+    Load residual-stream vectors for all emotions, mean-centre, return the
+    unit-norm contrast vector for `emotion`.
     """
-    # Load all emotion vectors
     vecs = []
     for e in all_emotions:
-        safe = e.replace(" ", "_").replace("/", "-")
-        npy  = vectors_dir / safe / f"layer_{layer}.npy"
-        vecs.append(torch.from_numpy(np.load(npy).astype(np.float32)))
+        p = _layer_file(vectors_dir / e, layer)
+        if p is None:
+            raise FileNotFoundError(f"No layer-{layer} file for emotion '{e}' in {vectors_dir}")
+        vecs.append(torch.from_numpy(np.load(p).astype(np.float32)))
 
-    mat  = torch.stack(vecs, dim=0)         # (n_emotions, d_sae)
-    mean = mat.mean(dim=0, keepdim=True)
-    contrast = mat - mean                   # (n_emotions, d_sae)
-
-    idx   = all_emotions.index(emotion)
-    c_vec = contrast[idx].to(sae.W_dec.device)   # (d_sae,)
-
-    # Project to residual-stream space via decoder
-    with torch.no_grad():
-        direction = sae.decode(c_vec.unsqueeze(0)).squeeze(0)   # (d_in,)
-
-    # Unit norm
-    direction = direction / (direction.norm() + 1e-8)
-    return direction.cpu()
+    mat      = torch.stack(vecs, dim=0)          # (n_emotions, d_model)
+    contrast = mat - mat.mean(dim=0, keepdim=True)
+    direction = contrast[all_emotions.index(emotion)]
+    return direction / (direction.norm() + 1e-8)
 
 
 def generate_with_steering(
@@ -157,12 +97,11 @@ def generate_with_steering(
     tokenizer,
     prompt: str,
     layer: int,
-    direction: Optional[torch.Tensor],   # None → baseline (no steering)
+    direction: Optional[torch.Tensor],
     alpha: float,
     n_new_tokens: int,
     device: torch.device,
 ) -> str:
-    """Generate text, optionally adding  alpha * direction  to residual stream at `layer`."""
     messages = [{"role": "user", "content": prompt}]
     text = tokenizer.apply_chat_template(
         messages, tokenize=False, add_generation_prompt=True
@@ -176,9 +115,7 @@ def generate_with_steering(
         def _hook(module, inp, out):
             hs = out[0] if isinstance(out, tuple) else out
             hs = hs + alpha * dir_dev.view(1, 1, -1).to(hs.dtype)
-            if isinstance(out, tuple):
-                return (hs,) + out[1:]
-            return hs
+            return (hs,) + out[1:] if isinstance(out, tuple) else hs
 
         hooks.append(model.model.layers[layer].register_forward_hook(_hook))
 
@@ -200,159 +137,117 @@ def generate_with_steering(
 
 
 def run_steering_experiment(
-    emotions: List[str],
-    layers: List[int],
+    model_name: str,
+    emotions: list[str],
+    layers: list[int],
     alpha: float,
     n_samples: int,
     n_new_tokens: int,
     vectors_dir: Path,
-    sae_cfg: dict,
     output_dir: Path,
     device: torch.device,
 ) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
-
     vad = load_vad(VAD_CSV)
 
-    # Load all emotion names (for contrast computation)
     all_emotions = sorted([
-        d.name for d in vectors_dir.iterdir() if d.is_dir()
+        d.name for d in vectors_dir.iterdir()
+        if d.is_dir() and _layer_file(d, layers[0]) is not None
     ])
-    # Map to canonical names (underscore → space)
-    all_emotions_canon = [e.replace("_", " ") for e in all_emotions]
+    missing = [e for e in emotions if e not in all_emotions]
+    if missing:
+        raise ValueError(f"Emotions not found in {vectors_dir}: {missing}")
 
-    print(f"Loading model {MODEL_NAME} ...")
+    print(f"Loading {model_name} ...")
     from transformers import AutoModelForCausalLM, AutoTokenizer
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
-
     model = AutoModelForCausalLM.from_pretrained(
-        MODEL_NAME, dtype=torch.bfloat16, device_map={"": device}
+        model_name, torch_dtype=torch.bfloat16, device_map={"": device}
     )
     model.eval()
 
-    results = []   # list of dicts, one per (emotion, layer, sample)
+    results = []
 
     for layer in layers:
-        print(f"\n{'='*60}")
-        print(f"Layer {layer}")
-        print(f"{'='*60}")
-
-        sae = load_sae(layer, sae_cfg, device)
-
+        print(f"\n{'='*60}\nLayer {layer}\n{'='*60}")
         for emotion in emotions:
-            # Find canonical dir name
-            safe = emotion.replace(" ", "_").replace("/", "-")
-            if safe not in all_emotions:
-                print(f"  [{emotion}] not found in vectors_dir — skipping")
-                continue
-
-            # Resolve canonical list index
-            emo_idx_safe = all_emotions.index(safe)
-            all_emotions_for_contrast = [e.replace("_", " ") for e in all_emotions]
-
             direction = compute_steering_direction(
-                emotion=all_emotions_for_contrast[emo_idx_safe],
-                layer=layer,
-                vectors_dir=vectors_dir,
-                sae=sae,
-                all_emotions=all_emotions_for_contrast,
+                emotion, layer, vectors_dir, all_emotions
             ).to(device)
 
             print(f"\n  [{emotion}]")
-
             for sample_i in range(n_samples):
-                # Baseline
-                baseline_text = generate_with_steering(
+                base_text  = generate_with_steering(
                     model, tokenizer, NEUTRAL_PROMPT,
                     layer=layer, direction=None, alpha=alpha,
                     n_new_tokens=n_new_tokens, device=device,
                 )
-                base_val, base_aro = score_text(baseline_text, vad)
-
-                # Steered
-                steered_text = generate_with_steering(
+                steer_text = generate_with_steering(
                     model, tokenizer, NEUTRAL_PROMPT,
                     layer=layer, direction=direction, alpha=alpha,
                     n_new_tokens=n_new_tokens, device=device,
                 )
-                steer_val, steer_aro = score_text(steered_text, vad)
+                base_val,  base_aro  = score_text(base_text,  vad)
+                steer_val, steer_aro = score_text(steer_text, vad)
 
                 results.append({
-                    "emotion":        emotion,
-                    "layer":          layer,
-                    "sample":         sample_i,
-                    "alpha":          alpha,
-                    "baseline_val":   base_val,
-                    "baseline_aro":   base_aro,
-                    "steered_val":    steer_val,
-                    "steered_aro":    steer_aro,
-                    "delta_val":      steer_val - base_val,
-                    "delta_aro":      steer_aro - base_aro,
-                    "baseline_text":  baseline_text,
-                    "steered_text":   steered_text,
+                    "emotion": emotion, "layer": layer, "sample": sample_i,
+                    "alpha": alpha,
+                    "baseline_val": base_val,  "baseline_aro": base_aro,
+                    "steered_val":  steer_val, "steered_aro":  steer_aro,
+                    "delta_val":    steer_val - base_val,
+                    "delta_aro":    steer_aro - base_aro,
+                    "baseline_text": base_text,
+                    "steered_text":  steer_text,
                 })
-
-                print(f"    sample {sample_i}: Δval={steer_val - base_val:+.3f}  "
-                      f"Δaro={steer_aro - base_aro:+.3f}")
-
-        # Unload SAE to free memory between layers
-        del sae
-        torch.cuda.empty_cache()
+                print(f"    sample {sample_i}: Δval={steer_val-base_val:+.3f}  "
+                      f"Δaro={steer_aro-base_aro:+.3f}")
 
     results_path = output_dir / "steering_results.json"
     with open(results_path, "w") as f:
         json.dump(results, f, indent=2)
     print(f"\nRaw results → {results_path}")
 
-    summary = {}
-    for r in results:
-        key = (r["emotion"], r["layer"])
-        if key not in summary:
-            summary[key] = {"delta_vals": [], "delta_aros": []}
-        if not np.isnan(r["delta_val"]):
-            summary[key]["delta_vals"].append(r["delta_val"])
-        if not np.isnan(r["delta_aro"]):
-            summary[key]["delta_aros"].append(r["delta_aro"])
+    _print_summary(results, emotions, layers)
+    _save_summary(results, emotions, layers, output_dir)
 
+
+def _print_summary(results, emotions, layers):
     print("\n" + "="*60)
-    print("STEERING SUMMARY  (mean Δvalence per layer)")
+    print("SUMMARY  (mean Δvalence per layer)")
     print("="*60)
     print(f"{'Emotion':<20} " + "  ".join(f"L{l:>2}" for l in layers))
     print("-"*60)
     for emotion in emotions:
         row = f"{emotion:<20}"
         for layer in layers:
-            key = (emotion, layer)
-            if key in summary and summary[key]["delta_vals"]:
-                row += f"  {np.mean(summary[key]['delta_vals']):+.2f}"
-            else:
-                row += "    -- "
+            deltas = [r["delta_val"] for r in results
+                      if r["emotion"] == emotion and r["layer"] == layer
+                      and not np.isnan(r["delta_val"])]
+            row += f"  {np.mean(deltas):+.2f}" if deltas else "    -- "
         print(row)
 
-    print("\nMean |Δvalence| per layer (effect size):")
-    for layer in layers:
-        delta_vals = [
-            v for (e, l), d in summary.items()
-            if l == layer for v in d["delta_vals"]
-        ]
-        if delta_vals:
-            print(f"  Layer {layer}: {np.mean(np.abs(delta_vals)):.3f} "
-                  f"(n={len(delta_vals)})")
 
-    summary_path = output_dir / "steering_summary.json"
-    agg = {
-        f"{e}__L{l}": {
-            "mean_delta_val": float(np.mean(d["delta_vals"])) if d["delta_vals"] else None,
-            "mean_delta_aro": float(np.mean(d["delta_aros"])) if d["delta_aros"] else None,
-            "n": len(d["delta_vals"]),
-        }
-        for (e, l), d in summary.items()
-    }
-    with open(summary_path, "w") as f:
+def _save_summary(results, emotions, layers, output_dir):
+    agg = {}
+    for emotion in emotions:
+        for layer in layers:
+            deltas_v = [r["delta_val"] for r in results
+                        if r["emotion"] == emotion and r["layer"] == layer
+                        and not np.isnan(r["delta_val"])]
+            deltas_a = [r["delta_aro"] for r in results
+                        if r["emotion"] == emotion and r["layer"] == layer
+                        and not np.isnan(r["delta_aro"])]
+            agg[f"{emotion}__L{layer}"] = {
+                "mean_delta_val": float(np.mean(deltas_v)) if deltas_v else None,
+                "mean_delta_aro": float(np.mean(deltas_a)) if deltas_a else None,
+                "n": len(deltas_v),
+            }
+    with open(output_dir / "steering_summary.json", "w") as f:
         json.dump(agg, f, indent=2)
-    print(f"Summary → {summary_path}")
+    print(f"Summary → {output_dir / 'steering_summary.json'}")
 
 
 def plot_results(results_path: Path, output_dir: Path) -> None:
@@ -373,29 +268,30 @@ def plot_results(results_path: Path, output_dir: Path) -> None:
     layers   = sorted(set(r["layer"]   for r in results))
     emotions = sorted(set(r["emotion"] for r in results))
 
+    # Figure 1: mean |Δvalence| per layer
+    fig, ax = plt.subplots(figsize=(8, 5))
     layer_effect = {}
     for layer in layers:
         deltas = [r["delta_val"] for r in results
                   if r["layer"] == layer and not np.isnan(r["delta_val"])]
         layer_effect[layer] = float(np.mean(np.abs(deltas))) if deltas else 0.0
-
-    fig, axes = plt.subplots(1, 2, figsize=(10, 4))
-
-    ax = axes[0]
-    xs = list(layer_effect.keys())
-    ys = [layer_effect[l] for l in xs]
-    colors = ["#78909C" if l < 17 else "#1976D2" for l in xs]
-    bars = ax.bar([str(l) for l in xs], ys, color=colors, edgecolor="k", linewidth=0.5)
-    ax.axvline(1.5, color="red", lw=1, ls="--", label="phase transition")
+    bars = ax.bar([str(l) for l in layers],
+                  [layer_effect[l] for l in layers],
+                  color="#1976D2", edgecolor="k", linewidth=0.5)
     ax.set_xlabel("Layer")
     ax.set_ylabel("Mean |Δvalence|")
-    ax.set_title("Steering effect size per layer\n(higher = stronger causal effect)")
-    ax.legend(fontsize=8)
-    for bar, y in zip(bars, ys):
+    ax.set_title("Steering effect size per layer")
+    for bar, y in zip(bars, [layer_effect[l] for l in layers]):
         ax.text(bar.get_x() + bar.get_width()/2, y + 0.002, f"{y:.3f}",
                 ha="center", va="bottom", fontsize=7)
+    fig.tight_layout()
+    out1 = output_dir / "fig_steering_layer_effect.pdf"
+    fig.savefig(out1)
+    plt.close(fig)
+    print(f"  saved {out1.name}")
 
-    ax = axes[1]
+    # Figure 2: heatmap Δvalence per (emotion × layer)
+    fig, ax = plt.subplots(figsize=(10, 6))
     mat = np.full((len(emotions), len(layers)), np.nan)
     for i, e in enumerate(emotions):
         for j, l in enumerate(layers):
@@ -404,42 +300,34 @@ def plot_results(results_path: Path, output_dir: Path) -> None:
                       and not np.isnan(r["delta_val"])]
             if deltas:
                 mat[i, j] = np.mean(deltas)
-
-    vmax = np.nanmax(np.abs(mat))
+    vmax = max(np.nanmax(np.abs(mat)), 1e-6)
     im = ax.imshow(mat, cmap="RdBu", vmin=-vmax, vmax=vmax, aspect="auto")
     plt.colorbar(im, ax=ax, fraction=0.04, label="mean Δvalence")
-    ax.set_xticks(range(len(layers)))
-    ax.set_xticklabels([str(l) for l in layers])
-    ax.set_yticks(range(len(emotions)))
-    ax.set_yticklabels(emotions, fontsize=7)
+    ax.set_xticks(range(len(layers)));   ax.set_xticklabels([str(l) for l in layers])
+    ax.set_yticks(range(len(emotions))); ax.set_yticklabels(emotions, fontsize=8)
     ax.set_xlabel("Layer")
-    ax.set_title("Δvalence per emotion × layer\n(red = more positive, blue = more negative)")
-    ax.axvline(1.5, color="red", lw=1.5, ls="--")
-
-    fig.suptitle("Causal validation: activation steering (Apertus 8B)", y=1.02)
+    ax.set_title("Δvalence per emotion × layer")
     fig.tight_layout()
-    out = output_dir / "fig5_steering.pdf"
-    fig.savefig(out)
+    out2 = output_dir / "fig_steering_heatmap.pdf"
+    fig.savefig(out2)
     plt.close(fig)
-    print(f"  saved {out.name}")
+    print(f"  saved {out2.name}")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--vectors-dir",  type=Path, default=VECTORS_DIR)
-    parser.add_argument("--sae-config",   type=Path, default=SAE_CONFIG_FILE)
-    parser.add_argument("--output-dir",   type=Path, default=OUTPUT_DIR)
-    parser.add_argument("--layer",        type=int,  default=None,
-                        help="Single layer to steer (default: all)")
-    parser.add_argument("--all-layers",   action="store_true",
-                        help="Sweep all layers (overrides --layer)")
-    parser.add_argument("--alpha",        type=float, default=20.0,
-                        help="Steering strength")
-    parser.add_argument("--n-samples",    type=int,  default=10,
-                        help="Generations per (emotion, layer) pair")
-    parser.add_argument("--n-new-tokens", type=int,  default=80)
+    parser.add_argument("--model-name",   type=str, required=True)
+    parser.add_argument("--vectors-dir",  type=Path, required=True)
+    parser.add_argument("--layers",       type=int, nargs="+", required=True)
+    parser.add_argument("--emotions",     type=str, nargs="+",
+                        default=["joyful", "depressed", "calm", "panicked",
+                                 "excited", "gloomy"])
+    parser.add_argument("--alpha",        type=float, default=20.0)
+    parser.add_argument("--n-samples",    type=int,   default=5)
+    parser.add_argument("--n-new-tokens", type=int,   default=80)
+    parser.add_argument("--output-dir",   type=Path,  required=True)
     parser.add_argument("--plot-only",    type=Path,  default=None,
-                        help="Skip generation, just plot existing results JSON")
+                        help="Skip generation; plot an existing results JSON")
     parser.add_argument("--device", type=str,
                         default="cuda" if torch.cuda.is_available() else "cpu")
     args = parser.parse_args()
@@ -448,28 +336,17 @@ def main() -> None:
         plot_results(args.plot_only, args.output_dir)
         return
 
-    if args.all_layers:
-        layers = LAYERS
-    elif args.layer is not None:
-        layers = [args.layer]
-    else:
-        layers = LAYERS
-
-    with open(args.sae_config) as f:
-        sae_cfg = json.load(f)
-
     run_steering_experiment(
-        emotions=STEER_EMOTIONS,
-        layers=layers,
+        model_name=args.model_name,
+        emotions=args.emotions,
+        layers=args.layers,
         alpha=args.alpha,
         n_samples=args.n_samples,
         n_new_tokens=args.n_new_tokens,
         vectors_dir=args.vectors_dir,
-        sae_cfg=sae_cfg,
         output_dir=args.output_dir,
         device=torch.device(args.device),
     )
-
     plot_results(args.output_dir / "steering_results.json", args.output_dir)
 
 

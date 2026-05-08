@@ -43,15 +43,15 @@ The Python scripts and `.sbatch` files contain absolute paths (e.g. output direc
 
 | Script | Variable/Argument to update |
 |--------|-----------------------------|
-| `extract_emotion_vectors.py` | `--output_dir`, `--stories_file` defaults |
+| `extract_emotion_vectors.py` | `--output-dir`, `--stories-file` defaults |
 | `steer_emotion_vectors.py` | `SCRIPT_DIR` constant at top of file (experimental, not used in paper) |
-| `analyze_emotion_vectors.py` | `--vectors_dir`, `--output_dir` defaults |
-| `analyze_cross_model_geometry_apstories.py` | `--apertus_dir`, `--gemma_dir`, `--output_dir` defaults |
+| `analyze_emotion_vectors.py` | `--vectors-dir`, `--output-dir` defaults |
+| `analyze_cross_model_geometry.py` | `--apertus-dir`, `--gemma-dir`, `--output-dir` defaults |
 | `run_*.sbatch` | `--output`, `--error`, model cache paths |
 
 ---
 
-The difference between `analyze_emotion_vectors.py` and `analyze_cross_model_geometry_apstories.py` is that the first script analyses one model at a time and produces visuals for one model, while the other does both at the same time. 
+The difference between `analyze_emotion_vectors.py` and `analyze_cross_model_geometry.py` is that the first script analyses one model at a time and produces visuals for one model, while the other does both at the same time. 
 
 ## Step-by-Step Usage
 
@@ -110,9 +110,9 @@ Please also be aware of changing the name of ```output-dir```.
 
 ```bash
 python analyze_emotion_vectors.py \
-    --vectors_dir output_apertus/emotion_vectors \
-    --output_dir output_apertus/analysis \
-    --nrc_csv emotion_valence_arousal_nrc.csv
+    --vectors-dir output_apertus/emotion_vectors \
+    --output-dir output_apertus/analysis \
+    --vad-csv emotion_valence_arousal_nrc.csv
 ```
 
 Produces: cosine similarity heatmap, PCA scatter, UMAP clustering, CKA matrix (PDF figures).
@@ -120,24 +120,23 @@ Produces: cosine similarity heatmap, PCA scatter, UMAP clustering, CKA matrix (P
 ### 4. Cross-Model Geometry Comparison
 
 ```bash
-python analyze_cross_model_geometry_apstories.py \
-    --apertus_dir output_apertus/emotion_vectors \
-    --gemma_dir output_gemma/emotion_vectors \
-    --output_dir output_cross_model
+python analyze_cross_model_geometry.py \
+    --apertus-dir output_apertus/emotion_vectors \
+    --gemma-dir output_gemma/emotion_vectors \
+    --output-dir output_cross_model
 ```
 
 Change the paths in case you want to analyse the results on stories produced by Gemma. 
 
 ### 5. Token-Level Visualization
 
-Under construction!!!
-
 ```bash
 python3 visualize_token_activations.py \
-    --sentences_file sentences.json \
-    --apertus_vectors output_apertus/emotion_vectors \
-    --gemma_vectors output_gemma/emotion_vectors \
-    --output_dir output_token_viz
+    --model swiss-ai/Apertus-8B-Instruct-2509 \
+    --vectors-dir output_apertus/contrast_vectors \
+    --layer 24 \
+    --sentences sentences.json \
+    --output-dir output_token_viz/apertus_l24
 ```
 
 ---

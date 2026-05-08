@@ -8,10 +8,11 @@
 #SBATCH --time=00:30:00
 #SBATCH --output=logs/%x-%j.out
 #SBATCH --error=logs/%x-%j.err
+# #SBATCH --environment=  # Set path to your SLURM environment TOML file
 
 set -eo pipefail
 
-SCRIPT_DIR=$(cd "$(dirname "$0")"; pwd)
+SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 echo "=============================================="
 echo "[slurm] Job: $SLURM_JOB_NAME ($SLURM_JOB_ID)"

@@ -8,7 +8,7 @@ Produces figures:
   fig3_umap.pdf                — UMAP coloured by k-means cluster
   fig4_cross_layer.pdf         — CKA matrix + valence-direction stability
 
-Usage (inside container):
+Usage:
     python3 analyze_emotion_vectors.py [--vectors-dir ...] [--output-dir ...]
 """
 
@@ -31,13 +31,13 @@ from sklearn.preprocessing import normalize
 
 warnings.filterwarnings("ignore")
 
-SCRIPT_DIR  = Path("/users/sinievdben/scratch/personal/emotion_experiment")
+SCRIPT_DIR = Path(__file__).parent
 VECTORS_DIR = SCRIPT_DIR / "output/emotion_vectors"
 OUTPUT_DIR  = SCRIPT_DIR / "output/analysis"
 VAD_CSV     = SCRIPT_DIR / "emotion_valence_arousal_nrc.csv"
 
-# settings for Apertus 
 LAYERS = [12, 16, 17, 18, 19, 20]
+
 
 def load_circumplex(csv_path: Path) -> dict[str, tuple[float, float]]:
     """
@@ -87,22 +87,14 @@ plt.rcParams.update({
 
 VALENCE_CMAP = plt.get_cmap("RdYlGn")
 
-
 def load_vectors(
     vectors_dir: Path,
     layers: list[int],
     circumplex: dict[str, tuple[float, float]],
-    use_resid: bool = False,
 ) -> dict[int, dict[str, np.ndarray]]:
     """
-    Returns vecs[layer][emotion] = float32 array.
-
-    use_resid=False (default): SAE feature vectors (d_sae=65536).
-      Priority: layer_N_projected.npy > layer_N.npy
-
-    use_resid=True: residual-stream vectors (d_model=4096).
-      Priority: layer_N_resid_projected.npy > layer_N_resid.npy
-
+    Returns vecs[layer][emotion] = float32 array (residual-stream vectors).
+    Priority: layer_N_resid_projected.npy > layer_N_resid.npy
     Only includes emotions present in ALL requested layers AND with VAD ratings.
     """
     vecs: dict[int, dict[str, np.ndarray]] = {l: {} for l in layers}
@@ -118,29 +110,17 @@ def load_vectors(
     for emo_dir in emotion_dirs:
         emotion = emo_dir.name
         for layer in layers:
-            if use_resid:
-                projected = emo_dir / f"layer_{layer}_resid_projected.npy"
-                fallback  = emo_dir / f"layer_{layer}_resid.npy"
-            else:
-                projected = emo_dir / f"layer_{layer}_projected.npy"
-                fallback  = emo_dir / f"layer_{layer}.npy"
+            projected = emo_dir / f"layer_{layer}_resid_projected.npy"
+            fallback  = emo_dir / f"layer_{layer}_resid.npy"
             path = projected if projected.exists() else fallback
             if path.exists():
                 vecs[layer][emotion] = np.load(path).astype(np.float32)
 
-    # Determine which variant was actually loaded for the status message
     first_dir = next((d for d in vectors_dir.iterdir() if d.is_dir()), None)
-    if use_resid:
-        space = "residual stream"
-        variant = "projected" if (
-            first_dir and (first_dir / f"layer_{layers[0]}_resid_projected.npy").exists()
-        ) else "raw"
-    else:
-        space = "SAE"
-        variant = "projected" if (
-            first_dir and (first_dir / f"layer_{layers[0]}_projected.npy").exists()
-        ) else "raw"
-    print(f"Using {variant} {space} emotion vectors")
+    variant = "projected" if (
+        first_dir and (first_dir / f"layer_{layers[0]}_resid_projected.npy").exists()
+    ) else "raw"
+    print(f"Using {variant} residual-stream emotion vectors")
 
     # Keep only emotions present in every layer
     common = set(vecs[layers[0]].keys())
@@ -156,10 +136,7 @@ def load_vectors(
 
 
 def build_matrices(raw: dict[int, dict[str, np.ndarray]]) -> dict[int, np.ndarray]:
-    """
-    Returns mat[layer] = float32 array of shape (n_emotions, d_sae),
-    row-order == sorted(emotions).
-    """
+    """Returns mat[layer] = float32 array of shape (n_emotions, d_model), row-order == sorted(emotions)."""
     return {
         l: np.stack(list(vecs.values()), axis=0)
         for l, vecs in raw.items()
@@ -171,7 +148,7 @@ def contrast_vectors(mat: dict[int, np.ndarray]) -> dict[int, np.ndarray]:
     return {l: M - M.mean(axis=0, keepdims=True) for l, M in mat.items()}
 
 
-# figure 1 
+
 def fig_cosine_heatmap(
     contrast: dict[int, np.ndarray],
     emotions: list[str],
@@ -208,7 +185,7 @@ def fig_cosine_heatmap(
     print(f"  saved {out_path.name}")
 
 
-# figure 2
+
 def fig_pca(
     contrast: dict[int, np.ndarray],
     emotions: list[str],
@@ -295,7 +272,7 @@ def fig_pca(
     }
 
 
-# figure 3
+
 def fig_umap(
     contrast: dict[int, np.ndarray],
     emotions: list[str],
@@ -365,7 +342,7 @@ def fig_umap(
         print(f"    C{cl}: {', '.join(members)}")
 
 
-# ifigure 4 
+
 def _linear_cka(X: np.ndarray, Y: np.ndarray) -> float:
     """
     Linear CKA between two (n_samples, d) matrices.
@@ -405,13 +382,11 @@ def fig_cross_layer(
 ) -> dict:
     n = len(layers)
 
-    # ── CKA matrix ────────────────────────────────────────────────────────────
     cka_mat = np.zeros((n, n))
     for i, li in enumerate(layers):
         for j, lj in enumerate(layers):
             cka_mat[i, j] = _linear_cka(contrast[li], contrast[lj])
 
-    # ── Valence-direction cosine similarity across layers ─────────────────────
     val_dirs = {l: _valence_direction(contrast[l], emotions, circumplex) for l in layers}
 
     # Cosine sim of valence direction between adjacent layers
@@ -426,7 +401,6 @@ def fig_cross_layer(
         for j, lj in enumerate(layers):
             val_sim_mat[i, j] = float(np.dot(val_dirs[li], val_dirs[lj]))
 
-    # ── Plot ──────────────────────────────────────────────────────────────────
     fig, axes = plt.subplots(1, 3, figsize=(13, 4))
 
     layer_labels = [str(l) for l in layers]
@@ -487,7 +461,7 @@ def fig_cross_layer(
     }
 
 
-# stats
+
 def compute_summary(
     raw: dict[int, dict[str, np.ndarray]],
     contrast: dict[int, np.ndarray],
@@ -504,16 +478,13 @@ def compute_summary(
         idx = np.unravel_index(np.nanargmin(sim), sim.shape)
         most_opposite = (emotions[idx[0]], emotions[idx[1]], float(sim[idx]))
 
-        # Sparsity of raw vectors
-        sparsity = float((raw[l][emotions[0]] == 0).mean())  # use first as proxy
-
         summary["layers"][str(l)] = {
             "mean_cosine_sim": float(np.nanmean(sim)),
             "std_cosine_sim":  float(np.nanstd(sim)),
             "most_opposite_pair": most_opposite,
-            "raw_vector_sparsity": sparsity,
         }
     return summary
+
 
 
 def main() -> None:
@@ -525,18 +496,14 @@ def main() -> None:
     parser.add_argument("--heatmap-layer", type=int, default=18,
                         help="Which layer to use for the cosine heatmap and UMAP (default: 18)")
     parser.add_argument("--kmeans-k",    type=int, default=10)
-    parser.add_argument("--use-resid",   action="store_true",
-                        help="Analyse residual-stream vectors instead of SAE feature vectors")
     args = parser.parse_args()
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
-    # ── Load VAD ratings ──────────────────────────────────────────────────────
     circumplex = load_circumplex(args.vad_csv)
 
-    # ── Load vectors ──────────────────────────────────────────────────────────
     print("Loading vectors ...")
-    raw = load_vectors(args.vectors_dir, args.layers, circumplex, use_resid=args.use_resid)
+    raw = load_vectors(args.vectors_dir, args.layers, circumplex)
     emotions = sorted(next(iter(raw.values())).keys())
     mat = build_matrices(raw)
     contrast = contrast_vectors(mat)
@@ -550,7 +517,6 @@ def main() -> None:
         json.dump(emotions, f)
     print(f"Saved contrast vectors → {contrast_dir}")
 
-    # figure 1 heatmap
     print("\nFigure 1: cosine similarity heatmap ...")
     for l in args.layers:
         fig_cosine_heatmap(
@@ -560,7 +526,6 @@ def main() -> None:
         )
         print(f"  saved fig1_cosine_similarity_layer{l}.pdf")
 
-    # figure 2 pca
     print("Figure 2: PCA + valence/arousal correlation ...")
     pca_results = {}
     for l in args.layers:
@@ -573,7 +538,6 @@ def main() -> None:
         print(f"  layer {l}: PC1↔valence r={r['pc1_valence_r']:.3f}  "
               f"PC2↔arousal r={r['pc2_arousal_r']:.3f}")
 
-    # figure 3 umap
     print("Figure 3: UMAP + k-means ...")
     fig_umap(
         contrast, emotions, circumplex,
@@ -582,14 +546,12 @@ def main() -> None:
         out_path=args.output_dir / "fig3_umap.pdf",
     )
 
-    # figure 4 cross layer cka 
     print("Figure 4: cross-layer CKA + valence stability ...")
     cross_layer_results = fig_cross_layer(
         contrast, emotions, circumplex, args.layers,
         out_path=args.output_dir / "fig4_cross_layer.pdf",
     )
 
-    # summary stats
     summary = compute_summary(raw, contrast, emotions, args.layers)
     summary["pca"] = pca_results
     summary["cross_layer"] = cross_layer_results

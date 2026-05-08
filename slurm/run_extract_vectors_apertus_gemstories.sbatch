@@ -8,10 +8,11 @@
 #SBATCH --time=02:00:00
 #SBATCH --output=logs/%x-%j.out
 #SBATCH --error=logs/%x-%j.err
+# #SBATCH --environment=  # Set path to your SLURM environment TOML file
 
 set -eo pipefail
 
-SCRIPT_DIR=$(cd "$(dirname "$0")"; pwd)
+SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 OUTPUT_DIR="${SCRIPT_DIR}/output_apertus_gemstories/emotion_vectors"
 LOGS_DIR="${SCRIPT_DIR}/logs"
 
@@ -19,7 +20,7 @@ LOGS_DIR="${SCRIPT_DIR}/logs"
 STORIES_FILE="${SCRIPT_DIR}/output_gemma_stories/stories.jsonl"
 
 MODEL="swiss-ai/Apertus-8B-Instruct-2509"
-LAYERS="12 16 18 20 22 24 26 28 30"
+LAYERS="1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31"
 BATCH_SIZE=4
 MAX_LENGTH=512
 

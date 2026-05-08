@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Cross-model geometry analysis: Gemma 4 E4B vs Apertus 8B.
+Cross-model geometry analysis: Gemma 4 8B vs Apertus 8B.
 
 Figures produced in OUTPUT_DIR:
   fig_valence_trajectory.pdf   — PC1↔valence r across layers, both models
@@ -32,12 +32,14 @@ from sklearn.preprocessing import normalize
 
 warnings.filterwarnings("ignore")
 
-SCRIPT_DIR   = Path("/users/sinievdben/scratch/personal/emotion_experiment")
+
+SCRIPT_DIR = Path(__file__).parent
 VAD_CSV      = SCRIPT_DIR / "emotion_valence_arousal_nrc.csv"
 
 GEMMA_DIR    = SCRIPT_DIR / "output_gemma/emotion_vectors"
 APERTUS_DIR  = SCRIPT_DIR / "output_apertus/emotion_vectors"
 
+# Requested layers; only those with actual files will be loaded.
 GEMMA_LAYERS_REQUESTED   = [16, 18, 20, 24, 28, 32, 36, 40]
 APERTUS_LAYERS_REQUESTED = [12, 16, 18, 20, 22, 24, 26, 28, 30]
 
@@ -46,8 +48,10 @@ GEMMA_LATE_LAYERS  = [28, 32, 36, 40]
 APERTUS_MID_LAYERS = [12, 16, 18, 20]       # 22, 24 will be skipped if absent
 APERTUS_LATE_LAYERS = [22, 24, 26, 28, 30]  # same
 
+# PCA scatter layers of interest
 GEMMA_BEST_LAYER   = 16
 APERTUS_BEST_LAYER = 26
+
 
 plt.rcParams.update({
     "font.family":       "sans-serif",
@@ -67,6 +71,7 @@ plt.rcParams.update({
 VALENCE_CMAP = plt.get_cmap("RdYlGn")
 GEMMA_COLOR   = "#E07B39"
 APERTUS_COLOR = "#3976C8"
+
 
 
 def load_circumplex(csv_path: Path) -> dict[str, tuple[float, float]]:
@@ -158,6 +163,7 @@ def build_contrast(vecs: dict[int, dict[str, np.ndarray]]) -> dict[int, np.ndarr
     return contrast
 
 
+
 def run_pca_layer(
     contrast_mat: np.ndarray,
     emotions: list[str],
@@ -208,6 +214,7 @@ def compute_cka_matrix(contrast: dict[int, np.ndarray], layers: list[int]) -> np
         for j, lj in enumerate(layers):
             mat[i, j] = linear_cka(contrast[li], contrast[lj])
     return mat
+
 
 
 def fig_trajectory(
@@ -369,6 +376,7 @@ def fig_valence_direction_sim(
     print(f"  saved {out_path.name}")
 
 
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--gemma-dir",   type=Path, default=GEMMA_DIR)
@@ -450,6 +458,7 @@ def main() -> None:
         "Apertus 8B",
         args.output_dir / "fig_valdir_sim_apertus.pdf",
     )
+
     print("\nGenerating PCA scatter plots ...")
     if GEMMA_BEST_LAYER in gemma_layers:
         fig_pca_scatter(

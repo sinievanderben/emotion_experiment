@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=extract_gemma_gemstories
+#SBATCH --job-name=extract_gemma_gemstories_lower_layers
 #SBATCH --account=a127
 #SBATCH --partition=normal
 #SBATCH --nodes=1
@@ -8,10 +8,11 @@
 #SBATCH --time=02:00:00
 #SBATCH --output=logs/%x-%j.out
 #SBATCH --error=logs/%x-%j.err
+# #SBATCH --environment=  # Set path to your SLURM environment TOML file
 
 set -eo pipefail
 
-SCRIPT_DIR=$(cd "$(dirname "$0")"; pwd)
+SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 OUTPUT_DIR="${SCRIPT_DIR}/output_gemma_gemstories/emotion_vectors"
 LOGS_DIR="${SCRIPT_DIR}/logs"
 
@@ -19,7 +20,7 @@ LOGS_DIR="${SCRIPT_DIR}/logs"
 STORIES_FILE="${SCRIPT_DIR}/output_gemma_stories/stories.jsonl"
 
 MODEL="google/gemma-4-E4B-it"
-LAYERS="16 18 20 24 28 32 36 40"
+LAYERS="1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40"
 BATCH_SIZE=4
 MAX_LENGTH=512
 

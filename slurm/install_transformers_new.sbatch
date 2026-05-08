@@ -8,10 +8,10 @@
 #SBATCH --time=00:15:00
 #SBATCH --output=logs/%x-%j.out
 #SBATCH --error=logs/%x-%j.err
+# #SBATCH --environment=  # Set path to your SLURM environment TOML file
 
 set -eo pipefail
 
-SCRIPT_DIR=$(cd "$(dirname "$0")"; pwd)
 TARGET="${SCRIPT_DIR}/pip_transformers_new"
 
 echo "Installing latest transformers into ${TARGET} ..."

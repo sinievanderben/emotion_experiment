@@ -28,6 +28,7 @@ LAYERS="0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 2
 # Stories are processed in batches; reduce if you hit OOM
 BATCH_SIZE=4
 MAX_LENGTH=512
+MODEL="google/gemma-4-E4B-it"
 
 # ============================================================================
 # SLURM Info
@@ -72,7 +73,7 @@ srun --export=ALL bash -lc "
     --layers       ${LAYERS} \
     --batch-size   ${BATCH_SIZE} \
     --max-length   ${MAX_LENGTH} \
-    --model google/gemma-2-9b-it
+    --model ${MODEL}
 "
 
 echo ""

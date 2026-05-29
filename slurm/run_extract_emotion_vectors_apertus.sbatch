@@ -24,6 +24,7 @@ LAYERS="1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 
 # Stories are processed in batches; reduce if you hit OOM
 BATCH_SIZE=4
 MAX_LENGTH=512
+MODEL="swiss-ai/Apertus-8B-Instruct-2509"
 
 echo "=============================================="
 echo "[slurm] Job: $SLURM_JOB_NAME ($SLURM_JOB_ID)"
@@ -56,7 +57,7 @@ srun --export=ALL bash -lc "
     --layers       1 2 3 4 5 6 7 8 9 \
     --batch-size   ${BATCH_SIZE} \
     --max-length   ${MAX_LENGTH} \
-    --model swiss-ai/Apertus-8B-Instruct-2509
+    --model ${MODEL}
     --debug-pooled-sim
 "
 

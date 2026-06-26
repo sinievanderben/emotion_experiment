@@ -22,7 +22,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
@@ -62,11 +62,56 @@ def _get_layer(model: nn.Module, idx: int) -> nn.Module:
     )
 
 
+def _iter_jsonl(path: Path):
+    """Yield one parsed JSON object per non-empty line of a JSONL file."""
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                yield json.loads(line)
+
+
+def load_emotions_data(
+    stories_file: Optional[Path] = None,
+    stories_dataset: Optional[str] = None,
+    stories_split: str = "train",
+) -> Dict[str, List[str]]:
+    """
+    Build a {emotion: [story, ...]} mapping from the generated stories.
+
+    Provide exactly one source:
+      - stories_file:    path to a local stories.jsonl (one prompt per line, each
+                         with an "emotion" field and a "stories" list).
+      - stories_dataset: a Hugging Face dataset repo id, e.g.
+                         "snae/emotion_stories_Apertus_8B_Instruct" or
+                         "snae/emotion_stories_gemma_4_4B". Requires the
+                         `datasets` package (`pip install datasets`).
+    """
+    if stories_dataset:
+        from datasets import load_dataset  # imported lazily so it stays optional
+        print(f"Loading stories from Hugging Face dataset: {stories_dataset} "
+              f"(split={stories_split})")
+        rows = load_dataset(stories_dataset, split=stories_split)
+    elif stories_file:
+        print(f"Loading stories from local file: {stories_file}")
+        rows = _iter_jsonl(stories_file)
+    else:
+        raise ValueError("Provide either stories_file or stories_dataset.")
+
+    emotions_data: Dict[str, List[str]] = {}
+    for entry in rows:
+        if entry.get("stories"):
+            emotions_data.setdefault(entry["emotion"], []).extend(entry["stories"])
+    return emotions_data
+
+
 def extract_emotion_vectors(
-    stories_file: Path,
     output_dir: Path,
     layers: List[int],
     device: torch.device,
+    stories_file: Optional[Path] = None,
+    stories_dataset: Optional[str] = None,
+    stories_split: str = "train",
     model_name: str = DEFAULT_MODEL,
     batch_size: int = 4,
     max_length: int = 512,
@@ -74,12 +119,11 @@ def extract_emotion_vectors(
 ) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    emotions_data: Dict[str, List[str]] = {}
-    with open(stories_file) as f:
-        for line in f:
-            entry = json.loads(line.strip())
-            if entry.get("stories"):
-                emotions_data.setdefault(entry["emotion"], []).extend(entry["stories"])
+    emotions_data = load_emotions_data(
+        stories_file=stories_file,
+        stories_dataset=stories_dataset,
+        stories_split=stories_split,
+    )
 
     print(
         f"Loaded {len(emotions_data)} emotions "
@@ -260,7 +304,15 @@ def main() -> None:
         description="Extract emotion vectors via residual-stream activations"
     )
     parser.add_argument("--model",        type=str, default=DEFAULT_MODEL)
-    parser.add_argument("--stories-file", type=Path, default=STORIES_FILE)
+    parser.add_argument("--stories-file", type=Path, default=STORIES_FILE,
+                        help="Local stories.jsonl. Ignored if --stories-dataset is set.")
+    parser.add_argument("--stories-dataset", type=str, default=None,
+                        help="Hugging Face dataset repo id to load stories from "
+                             "instead of a local file, e.g. "
+                             "'snae/emotion_stories_Apertus_8B_Instruct' or "
+                             "'snae/emotion_stories_gemma_4_4B'.")
+    parser.add_argument("--stories-split", type=str, default="train",
+                        help="Split to load when using --stories-dataset (default: train).")
     parser.add_argument("--output-dir",   type=Path, default=OUTPUT_DIR)
     parser.add_argument("--layers",       type=int, nargs="+", required=True)
     parser.add_argument("--batch-size",   type=int, default=4)
@@ -278,7 +330,9 @@ def main() -> None:
     args = parser.parse_args()
 
     extract_emotion_vectors(
-        stories_file=args.stories_file,
+        stories_file=None if args.stories_dataset else args.stories_file,
+        stories_dataset=args.stories_dataset,
+        stories_split=args.stories_split,
         output_dir=args.output_dir,
         layers=args.layers,
         model_name=args.model,

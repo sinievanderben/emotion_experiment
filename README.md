@@ -10,6 +10,33 @@ The method in this repository follows descriptions given by Anthropic's research
 
 ---
 
+## Data Availability (Hugging Face)
+
+The generated emotion stories are published on the Hugging Face Hub, so you can
+skip the generation step (Step 1) and go straight to extracting emotion vectors:
+
+| Model | Dataset | Stories |
+|-------|---------|---------|
+| Apertus 8B | [`snae/emotion_stories_Apertus_8B_Instruct`](https://huggingface.co/datasets/snae/emotion_stories_Apertus_8B_Instruct) | 513 prompts / 1,539 stories |
+| Gemma 4 E4B | [`snae/emotion_stories_gemma_4_4B`](https://huggingface.co/datasets/snae/emotion_stories_gemma_4_4B) | 513 prompts / 1,539 stories |
+
+Each dataset is 171 emotions × 3 topics × 3 stories. Load it with:
+
+```python
+from datasets import load_dataset
+
+ds = load_dataset("snae/emotion_stories_Apertus_8B_Instruct")
+row = ds["train"][0]
+print(row["emotion"], "—", row["topic"])
+for story in row["stories"]:   # 3 stories per row
+    print(story[:80], "...")
+```
+
+`extract_emotion_vectors.py` can read these datasets directly via
+`--stories-dataset` (see [Step 2](#2-extract-emotion-vectors)).
+
+---
+
 ## Pipeline Overview
 
 ```
@@ -31,6 +58,13 @@ Each step has a corresponding SLURM batch script (`run_*.sbatch`) for running on
 
 ```bash
 pip install torch transformers>=4.51 numpy scipy scikit-learn matplotlib tqdm pandas umap-learn
+```
+
+Add `datasets` if you want to load the published stories from the Hugging Face
+Hub instead of generating them locally (see [Data Availability](#data-availability-hugging-face)):
+
+```bash
+pip install datasets
 ```
 
 If you run the code on a cluster, please create an environment where you can install all the required packages. 
@@ -105,6 +139,29 @@ output_gemma_stories/stories.jsonl
 ```
 
 Please also be aware of changing the name of ```output-dir```. 
+
+**Loading stories from Hugging Face instead of a local file.** Pass
+`--stories-dataset` (which overrides `--stories-file`) to pull the published
+stories directly from the Hub — no local generation needed:
+
+```bash
+# Apertus stories from the Hub
+python extract_emotion_vectors.py \
+    --model swiss-ai/Apertus-8B-Instruct-2509 \
+    --stories-dataset snae/emotion_stories_Apertus_8B_Instruct \
+    --output-dir output_apertus/emotion_vectors \
+    --layers 12 16 18 20 22 24 26 28 30
+
+# Gemma stories from the Hub
+python extract_emotion_vectors.py \
+    --model google/gemma-4-E4B-it \
+    --stories-dataset snae/emotion_stories_gemma_4_4B \
+    --output-dir output_gemma/emotion_vectors \
+    --layers 17 19 27 28 29
+```
+
+This requires the `datasets` package (`pip install datasets`). Use
+`--stories-split` to select a split other than the default `train`.
 
 ### 3. Analyze Emotion Vectors
 

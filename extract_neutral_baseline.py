@@ -1,11 +1,7 @@
 #!/usr/bin/env python3
 """
 Extract the neutral activation basis used for PCA-based confound mitigation
-(following Sofroniew et al. 2026): run each of the 40 neutral paragraphs
-(prompts/neutral_texts.txt) through the model separately, using the same
-masked-mean-over-tokens method as extract_emotion_vectors.py, giving one raw
-vector per paragraph per layer. Stack the per-paragraph vectors into a
-(n_paragraphs, d_model) matrix per layer and save it.
+(following Sofroniew et al. 2026).
 
 Output: {output_dir}/layer_{L}_neutral_basis.npy   shape (n_paragraphs, d_model)
 
@@ -60,11 +56,6 @@ def main() -> None:
     width = len(str(n - 1))
     labels = [f"neutral_{i:0{width}d}" for i in range(n)]
 
-    # extract_emotion_vectors() reads a JSONL of {"emotion": ..., "stories": [...]}
-    # entries and writes {output_dir}/{emotion}/layer_{L}_resid.npy, averaging
-    # over every story listed for that "emotion". Feed it one synthetic
-    # "emotion" per neutral paragraph (a single story each) so each paragraph
-    # gets its own vector, computed exactly the same way as a real emotion vector.
     with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as f:
         for label, paragraph in zip(labels, paragraphs):
             f.write(json.dumps({"emotion": label, "stories": [paragraph]}) + "\n")

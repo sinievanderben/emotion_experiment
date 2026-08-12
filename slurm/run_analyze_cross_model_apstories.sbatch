@@ -11,7 +11,7 @@
 
 set -eo pipefail
 
-SCRIPT_DIR=$(cd "$(dirname "$0")"; pwd)
+SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 echo "=============================================="
 echo "[slurm] Job: $SLURM_JOB_NAME ($SLURM_JOB_ID)"
@@ -21,8 +21,8 @@ echo "=============================================="
 srun --export=ALL bash -lc "
   cd ${SCRIPT_DIR}
   python3 analyze_cross_model_geometry.py \
-    --gemma-dir   ${SCRIPT_DIR}/output_gemma/emotion_vectors \
-    --apertus-dir ${SCRIPT_DIR}/output_apertus/emotion_vectors \
+    --gemma-dir   ${SCRIPT_DIR}/output_gemma_apstories/emotion_vectors \
+    --apertus-dir ${SCRIPT_DIR}/output_apertus_apstories/emotion_vectors \
     --output-dir  ${SCRIPT_DIR}/output_cross_model_apstories/emotion_vectors
 "
 

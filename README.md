@@ -4,36 +4,8 @@ Reproduction of [Anthropic's emotion vectors work](https://transformer-circuits.
 - **Apertus 8B** (`swiss-ai/Apertus-8B-Instruct-2509`) — residual stream
 - **Gemma 4 E4B** (`google/gemma-4-E4B-it`) — residual stream
 
-The pipeline generates emotion-labeled stories, extracts hidden-state emotion vectors, and analyzes their geometric structure.
+The pipeline generates emotion-labeled stories, extracts hidden-state emotion vectors, and analyzes their geometric structure. Please be aware that the implementation tries to follow the original research as closely as possible, but there might be an introduction of possible errors. 
 
-The method in this repository follows descriptions given by Anthropic's research and uses the prompts and emotions provided by them. 
-
----
-
-## Data Availability (Hugging Face)
-
-The generated emotion stories are published on the Hugging Face Hub, so you can
-skip the generation step (Step 1) and go straight to extracting emotion vectors:
-
-| Model | Dataset | Stories |
-|-------|---------|---------|
-| Apertus 8B | [`snae/emotion_stories_Apertus_8B_Instruct`](https://huggingface.co/datasets/snae/emotion_stories_Apertus_8B_Instruct) | 513 prompts / 1,539 stories |
-| Gemma 4 E4B | [`snae/emotion_stories_gemma_4_4B`](https://huggingface.co/datasets/snae/emotion_stories_gemma_4_4B) | 513 prompts / 1,539 stories |
-
-Each dataset is 171 emotions × 3 topics × 3 stories. Load it with:
-
-```python
-from datasets import load_dataset
-
-ds = load_dataset("snae/emotion_stories_Apertus_8B_Instruct")
-row = ds["train"][0]
-print(row["emotion"], "—", row["topic"])
-for story in row["stories"]:   # 3 stories per row
-    print(story[:80], "...")
-```
-
-`extract_emotion_vectors.py` can read these datasets directly via
-`--stories-dataset` (see [Step 2](#2-extract-emotion-vectors)).
 
 ---
 
@@ -42,11 +14,11 @@ for story in row["stories"]:   # 3 stories per row
 ```
 1. generate_emotion_stories.py      # Generate stories per emotion (Apertus or Gemma)
 2. extract_emotion_vectors.py       # Extract activation vectors from model hidden states
-3. analyze_emotion_vectors.py       # PCA, UMAP, CKA analysis and figures
-4. analyze_cross_model_geometry.py  # Compare emotions across models
+3. extract_neutral_baseline.py      # Extract the neutral basis needed for confound mitigation `*_resid_projected.npy`
+4. apply_confound_mitigation.py     # PCA-project it out, writes *_resid_projected.npy
+5. analyze_emotion_vectors.py       # PCA, UMAP, CKA analysis and figures (uses the projected vectors)
+6. analyze_cross_model_geometry.py  # Compare emotions across models (uses the projected vectors)
 ```
-
-> `steer_emotion_vectors.py` is an experimental prototype (activation steering) that was not used in the paper. See [Experimental](#experimental-steering) below.
 
 Each step has a corresponding SLURM batch script (`run_*.sbatch`) for running on a GPU cluster.
 
@@ -60,13 +32,6 @@ Each step has a corresponding SLURM batch script (`run_*.sbatch`) for running on
 pip install torch transformers>=4.51 numpy scipy scikit-learn matplotlib tqdm pandas umap-learn
 ```
 
-Add `datasets` if you want to load the published stories from the Hugging Face
-Hub instead of generating them locally (see [Data Availability](#data-availability-hugging-face)):
-
-```bash
-pip install datasets
-```
-
 If you run the code on a cluster, please create an environment where you can install all the required packages. 
 
 > **Gemma 4 note:** Gemma 4 requires `transformers>=4.51`. On some HPC environments this conflicts with preinstalled numpy. Use `install_transformers_new.sh` / `.sbatch` to install a compatible version into a local path.
@@ -78,7 +43,8 @@ The Python scripts and `.sbatch` files contain absolute paths (e.g. output direc
 | Script | Variable/Argument to update |
 |--------|-----------------------------|
 | `extract_emotion_vectors.py` | `--output-dir`, `--stories-file` defaults |
-| `steer_emotion_vectors.py` | `SCRIPT_DIR` constant at top of file (experimental, not used in paper) |
+| `extract_neutral_baseline.py` | `--output-dir` default |
+| `apply_confound_mitigation.py` | `--vectors-dir` (required, no default) |
 | `analyze_emotion_vectors.py` | `--vectors-dir`, `--output-dir` defaults |
 | `analyze_cross_model_geometry.py` | `--apertus-dir`, `--gemma-dir`, `--output-dir` defaults |
 | `run_*.sbatch` | `--output`, `--error`, model cache paths |
@@ -140,29 +106,6 @@ output_gemma_stories/stories.jsonl
 
 Please also be aware of changing the name of ```output-dir```. 
 
-**Loading stories from Hugging Face instead of a local file.** Pass
-`--stories-dataset` (which overrides `--stories-file`) to pull the published
-stories directly from the Hub — no local generation needed:
-
-```bash
-# Apertus stories from the Hub
-python extract_emotion_vectors.py \
-    --model swiss-ai/Apertus-8B-Instruct-2509 \
-    --stories-dataset snae/emotion_stories_Apertus_8B_Instruct \
-    --output-dir output_apertus/emotion_vectors \
-    --layers 12 16 18 20 22 24 26 28 30
-
-# Gemma stories from the Hub
-python extract_emotion_vectors.py \
-    --model google/gemma-4-E4B-it \
-    --stories-dataset snae/emotion_stories_gemma_4_4B \
-    --output-dir output_gemma/emotion_vectors \
-    --layers 17 19 27 28 29
-```
-
-This requires the `datasets` package (`pip install datasets`). Use
-`--stories-split` to select a split other than the default `train`.
-
 ### 3. Analyze Emotion Vectors
 
 ```bash
@@ -196,6 +139,32 @@ python3 visualize_token_activations.py \
     --output-dir output_token_viz/apertus_l24
 ```
 
+### 6. Neutral Basis for Confound Mitigation
+
+```bash
+python extract_neutral_baseline.py \
+    --model swiss-ai/Apertus-8B-Instruct-2509 \
+    --output-dir output_apertus/neutral_basis \
+    --layers 12 16 18 20 22 24 26 28 30
+```
+
+Runs each of the 40 neutral paragraphs in `prompts/neutral_texts.txt` through
+the model separately. Must use the same model and layer set as the emotion vectors it corresponds to. This script only produces that matrix; the confound-mitigated contrast vector is built by the next step.
+
+### 7. Apply Confound Mitigation
+
+```bash
+python apply_confound_mitigation.py \
+    --vectors-dir output_apertus/emotion_vectors \
+    --layers 12 16 18 20 22 24 26 28 30
+```
+
+Writes `layer_{L}_resid_projected.npy` next to
+each emotion's `layer_{L}_resid.npy`. `analyze_emotion_vectors.py` and
+`analyze_cross_model_geometry.py` (steps 3 and 4 above) automatically prefer
+the projected file when it exists, so run this before them if you want the
+confound-mitigated analysis.
+
 ---
 
 ## Cross-Condition Experiments
@@ -208,26 +177,21 @@ To test whether emotion geometry is consistent across story generators (i.e., ru
 
 ---
 
-## Running on SLURM 
+## Running on SLURM
 
 Update the `--output`, `--error`, and path variables in each `.sbatch` file, then submit:
 
 ```bash
-sbatch slurm/install_transformers_new.sbatch   # once, for Gemma support
-sbatch slurm/run_emotion_stories.sbatch
-sbatch slurm/run_extract_emotion_vectors.sbatch
-sbatch slurm/run_analyze_emotion_vectors.sbatch
+sbatch slurm/install_transformers_new.sbatch     # once, for Gemma support
+sbatch slurm/run_emotion_stories_apertus.sbatch  # or run_emotion_stories_gemma.sbatch
+sbatch run_extract_emotion_vectors_apertus.sbatch  # or the gemma / *_gemstories variants
+python3 analyze_emotion_vectors.py --vectors-dir ... --output-dir ...  # no .sbatch wrapper — fast enough to run directly
 ```
 
+See the root [README's `.sbatch` script reference](../README.md#sbatch-script-reference)
+for the full list of extraction/analysis job scripts and what each one runs.
+
 All jobs request 1–4 A100 GPUs and 32–64 GB RAM. See individual `.sbatch` files for resource requirements.
-
----
-
-## Experimental: Steering
-
-`steer_emotion_vectors.py` and `slurm/run_steer_emotion_vectors.sbatch` are **not part of the paper** and were not used in the analysis. The script was a rough prototype for causal validation via activation steering (adding a scaled emotion direction to the residual stream during generation and scoring output with the NRC VAD lexicon). It ran once on Apertus and produced output in `output_apertus/steering/`, but was never developed further.
-
-The script requires updating the hardcoded paths at the top before it can be run in a different environment.
 
 ---
 

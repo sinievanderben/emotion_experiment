@@ -6,7 +6,17 @@ Reproduction of [Anthropic's emotion vectors work](https://transformer-circuits.
 
 The pipeline generates emotion-labeled stories, extracts hidden-state emotion vectors, and analyzes their geometric structure.
 
-The method in this repository follows descriptions given by Anthropic's research and uses the prompts and emotions provided by them. 
+The method in this repository follows descriptions given by Anthropic's research and uses the prompts and emotions provided by them.
+
+`extract_emotion_vectors.py` produces the raw per-emotion vector only (token-level
+mean activation over that emotion's stories). Confound mitigation — projecting out
+the top principal components of neutral-story activations (enough to explain 50% of
+variance) from each emotion vector — is a separate step, not performed by this
+script. `extract_neutral_baseline.py` extracts the neutral basis needed for that
+step: one activation vector per neutral paragraph in `prompts/neutral_texts.txt`
+(same masked-mean method), stacked into a `(n_paragraphs, d_model)` matrix per
+layer. Whichever pipeline consumes these vectors is responsible for the PCA and
+projection itself.
 
 ---
 
@@ -46,8 +56,6 @@ for story in row["stories"]:   # 3 stories per row
 4. analyze_cross_model_geometry.py  # Compare emotions across models
 ```
 
-> `steer_emotion_vectors.py` is an experimental prototype (activation steering) that was not used in the paper. See [Experimental](#experimental-steering) below.
-
 Each step has a corresponding SLURM batch script (`run_*.sbatch`) for running on a GPU cluster.
 
 ---
@@ -78,7 +86,6 @@ The Python scripts and `.sbatch` files contain absolute paths (e.g. output direc
 | Script | Variable/Argument to update |
 |--------|-----------------------------|
 | `extract_emotion_vectors.py` | `--output-dir`, `--stories-file` defaults |
-| `steer_emotion_vectors.py` | `SCRIPT_DIR` constant at top of file (experimental, not used in paper) |
 | `analyze_emotion_vectors.py` | `--vectors-dir`, `--output-dir` defaults |
 | `analyze_cross_model_geometry.py` | `--apertus-dir`, `--gemma-dir`, `--output-dir` defaults |
 | `run_*.sbatch` | `--output`, `--error`, model cache paths |
@@ -196,6 +203,34 @@ python3 visualize_token_activations.py \
     --output-dir output_token_viz/apertus_l24
 ```
 
+### 6. Neutral Basis for Confound Mitigation
+
+```bash
+python extract_neutral_baseline.py \
+    --model swiss-ai/Apertus-8B-Instruct-2509 \
+    --output-dir output_apertus/neutral_basis \
+    --layers 12 16 18 20 22 24 26 28 30
+```
+
+Runs each of the 40 neutral paragraphs in `prompts/neutral_texts.txt` through
+the model separately, using the same masked-mean method as
+`extract_emotion_vectors.py`, and stacks them into a `(40, d_model)` matrix per
+layer at `output_apertus/neutral_basis/layer_{L}_neutral_basis.npy`. This
+script only produces that matrix. To build the true confound-mitigated contrast
+vector for an emotion, run PCA on it, keep the top components explaining 50% of
+variance, and project those out of the raw emotion vector:
+
+```python
+u_e = np.load("output_apertus/emotion_vectors/joy/layer_12_resid.npy")
+basis = np.load("output_apertus/neutral_basis/layer_12_neutral_basis.npy")  # (40, d_model)
+_, s, vt = np.linalg.svd(basis, full_matrices=False)
+k = int(np.searchsorted(np.cumsum(s**2) / (s**2).sum(), 0.5)) + 1
+p = vt[:k]                      # (k, d_model), orthonormal
+v_e = u_e - (u_e @ p.T) @ p     # confound-mitigated contrast vector
+```
+
+Must use the same model and layer set as the emotion vectors it corresponds to.
+
 ---
 
 ## Cross-Condition Experiments
@@ -213,21 +248,14 @@ To test whether emotion geometry is consistent across story generators (i.e., ru
 Update the `--output`, `--error`, and path variables in each `.sbatch` file, then submit:
 
 ```bash
-sbatch slurm/install_transformers_new.sbatch   # once, for Gemma support
-sbatch slurm/run_emotion_stories.sbatch
-sbatch slurm/run_extract_emotion_vectors.sbatch
-sbatch slurm/run_analyze_emotion_vectors.sbatch
+sbatch slurm/install_transformers_new.sbatch       # once, for Gemma support
+sbatch slurm/run_emotion_stories_apertus.sbatch    # or run_emotion_stories_gemma.sbatch
+sbatch slurm/run_extract_emotion_vectors_apertus.sbatch  # or the gemma / *_gemstories variants
+sbatch slurm/run_extract_neutral_baseline.sbatch   # neutral basis for confound mitigation
+python3 analyze_emotion_vectors.py --vectors-dir ... --output-dir ...  # no .sbatch wrapper, fast enough to run directly
 ```
 
 All jobs request 1–4 A100 GPUs and 32–64 GB RAM. See individual `.sbatch` files for resource requirements.
-
----
-
-## Experimental: Steering
-
-`steer_emotion_vectors.py` and `slurm/run_steer_emotion_vectors.sbatch` are **not part of the paper** and were not used in the analysis. The script was a rough prototype for causal validation via activation steering (adding a scaled emotion direction to the residual stream during generation and scoring output with the NRC VAD lexicon). It ran once on Apertus and produced output in `output_apertus/steering/`, but was never developed further.
-
-The script requires updating the hardcoded paths at the top before it can be run in a different environment.
 
 ---
 

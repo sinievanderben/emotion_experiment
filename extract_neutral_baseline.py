@@ -7,11 +7,6 @@ masked-mean-over-tokens method as extract_emotion_vectors.py, giving one raw
 vector per paragraph per layer. Stack the per-paragraph vectors into a
 (n_paragraphs, d_model) matrix per layer and save it.
 
-This script only produces the neutral basis matrix. Building the actual
-contrast vector -- PCA on this matrix, keep the top components explaining 50%
-of variance, project them out of each emotion vector -- happens downstream, in
-whichever pipeline consumes these vectors.
-
 Output: {output_dir}/layer_{L}_neutral_basis.npy   shape (n_paragraphs, d_model)
 
 Usage:

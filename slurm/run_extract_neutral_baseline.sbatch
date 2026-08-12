@@ -11,11 +11,6 @@
 
 set -eo pipefail
 
-# Template: edit MODEL/OUTPUT_DIR/LAYERS to match one of your
-# output_{model}_{stories}/ conditions, then submit once per condition. Use
-# the SAME model and layer set as the emotion vectors it corresponds to.
-# Only 40 short paragraphs, so this runs in minutes.
-
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 OUTPUT_DIR="${SCRIPT_DIR}/output_apertus/neutral_basis"
 LOGS_DIR="${SCRIPT_DIR}/logs"

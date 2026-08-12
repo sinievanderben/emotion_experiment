@@ -149,12 +149,7 @@ python extract_neutral_baseline.py \
 ```
 
 Runs each of the 40 neutral paragraphs in `prompts/neutral_texts.txt` through
-the model separately, using the same masked-mean method as
-`extract_emotion_vectors.py`, and stacks them into a `(40, d_model)` matrix per
-layer at `output_apertus/neutral_basis/layer_{L}_neutral_basis.npy`. Must use
-the same model and layer set as the emotion vectors it corresponds to. This
-script only produces that matrix; the confound-mitigated contrast vector is
-built by the next step.
+the model separately. Must use the same model and layer set as the emotion vectors it corresponds to. This script only produces that matrix; the confound-mitigated contrast vector is built by the next step.
 
 ### 7. Apply Confound Mitigation
 
@@ -164,9 +159,7 @@ python apply_confound_mitigation.py \
     --layers 12 16 18 20 22 24 26 28 30
 ```
 
-PCA (via SVD) on the neutral basis from step 6, keep the top components
-explaining 50% of variance, and project those out of each raw emotion vector:
-`v_e = u_e - Σ(u_e·p_k)p_k`. Writes `layer_{L}_resid_projected.npy` next to
+Writes `layer_{L}_resid_projected.npy` next to
 each emotion's `layer_{L}_resid.npy`. `analyze_emotion_vectors.py` and
 `analyze_cross_model_geometry.py` (steps 3 and 4 above) automatically prefer
 the projected file when it exists, so run this before them if you want the

@@ -4,46 +4,8 @@ Reproduction of [Anthropic's emotion vectors work](https://transformer-circuits.
 - **Apertus 8B** (`swiss-ai/Apertus-8B-Instruct-2509`) — residual stream
 - **Gemma 4 E4B** (`google/gemma-4-E4B-it`) — residual stream
 
-The pipeline generates emotion-labeled stories, extracts hidden-state emotion vectors, and analyzes their geometric structure.
+The pipeline generates emotion-labeled stories, extracts hidden-state emotion vectors, and analyzes their geometric structure. Please be aware that the implementation tries to follow the original research as closely as possible, but there might be an introduction of possible errors. 
 
-The method in this repository follows descriptions given by Anthropic's research and uses the prompts and emotions provided by them.
-
-`extract_emotion_vectors.py` produces the raw per-emotion vector only (token-level
-mean activation over that emotion's stories). Confound mitigation — projecting out
-the top principal components of neutral-story activations (enough to explain 50% of
-variance) from each emotion vector — is a separate step, not performed by this
-script. `extract_neutral_baseline.py` extracts the neutral basis needed for that
-step: one activation vector per neutral paragraph in `prompts/neutral_texts.txt`
-(same masked-mean method), stacked into a `(n_paragraphs, d_model)` matrix per
-layer. Whichever pipeline consumes these vectors is responsible for the PCA and
-projection itself.
-
----
-
-## Data Availability (Hugging Face)
-
-The generated emotion stories are published on the Hugging Face Hub, so you can
-skip the generation step (Step 1) and go straight to extracting emotion vectors:
-
-| Model | Dataset | Stories |
-|-------|---------|---------|
-| Apertus 8B | [`snae/emotion_stories_Apertus_8B_Instruct`](https://huggingface.co/datasets/snae/emotion_stories_Apertus_8B_Instruct) | 513 prompts / 1,539 stories |
-| Gemma 4 E4B | [`snae/emotion_stories_gemma_4_4B`](https://huggingface.co/datasets/snae/emotion_stories_gemma_4_4B) | 513 prompts / 1,539 stories |
-
-Each dataset is 171 emotions × 3 topics × 3 stories. Load it with:
-
-```python
-from datasets import load_dataset
-
-ds = load_dataset("snae/emotion_stories_Apertus_8B_Instruct")
-row = ds["train"][0]
-print(row["emotion"], "—", row["topic"])
-for story in row["stories"]:   # 3 stories per row
-    print(story[:80], "...")
-```
-
-`extract_emotion_vectors.py` can read these datasets directly via
-`--stories-dataset` (see [Step 2](#2-extract-emotion-vectors)).
 
 ---
 
@@ -52,8 +14,10 @@ for story in row["stories"]:   # 3 stories per row
 ```
 1. generate_emotion_stories.py      # Generate stories per emotion (Apertus or Gemma)
 2. extract_emotion_vectors.py       # Extract activation vectors from model hidden states
-3. analyze_emotion_vectors.py       # PCA, UMAP, CKA analysis and figures
-4. analyze_cross_model_geometry.py  # Compare emotions across models
+3. extract_neutral_baseline.py      # Extract the neutral basis needed for confound mitigation `*_resid_projected.npy`
+4. apply_confound_mitigation.py     # PCA-project it out, writes *_resid_projected.npy
+5. analyze_emotion_vectors.py       # PCA, UMAP, CKA analysis and figures (uses the projected vectors)
+6. analyze_cross_model_geometry.py  # Compare emotions across models (uses the projected vectors)
 ```
 
 Each step has a corresponding SLURM batch script (`run_*.sbatch`) for running on a GPU cluster.
@@ -68,13 +32,6 @@ Each step has a corresponding SLURM batch script (`run_*.sbatch`) for running on
 pip install torch transformers>=4.51 numpy scipy scikit-learn matplotlib tqdm pandas umap-learn
 ```
 
-Add `datasets` if you want to load the published stories from the Hugging Face
-Hub instead of generating them locally (see [Data Availability](#data-availability-hugging-face)):
-
-```bash
-pip install datasets
-```
-
 If you run the code on a cluster, please create an environment where you can install all the required packages. 
 
 > **Gemma 4 note:** Gemma 4 requires `transformers>=4.51`. On some HPC environments this conflicts with preinstalled numpy. Use `install_transformers_new.sh` / `.sbatch` to install a compatible version into a local path.
@@ -86,6 +43,8 @@ The Python scripts and `.sbatch` files contain absolute paths (e.g. output direc
 | Script | Variable/Argument to update |
 |--------|-----------------------------|
 | `extract_emotion_vectors.py` | `--output-dir`, `--stories-file` defaults |
+| `extract_neutral_baseline.py` | `--output-dir` default |
+| `apply_confound_mitigation.py` | `--vectors-dir` (required, no default) |
 | `analyze_emotion_vectors.py` | `--vectors-dir`, `--output-dir` defaults |
 | `analyze_cross_model_geometry.py` | `--apertus-dir`, `--gemma-dir`, `--output-dir` defaults |
 | `run_*.sbatch` | `--output`, `--error`, model cache paths |
@@ -147,29 +106,6 @@ output_gemma_stories/stories.jsonl
 
 Please also be aware of changing the name of ```output-dir```. 
 
-**Loading stories from Hugging Face instead of a local file.** Pass
-`--stories-dataset` (which overrides `--stories-file`) to pull the published
-stories directly from the Hub — no local generation needed:
-
-```bash
-# Apertus stories from the Hub
-python extract_emotion_vectors.py \
-    --model swiss-ai/Apertus-8B-Instruct-2509 \
-    --stories-dataset snae/emotion_stories_Apertus_8B_Instruct \
-    --output-dir output_apertus/emotion_vectors \
-    --layers 12 16 18 20 22 24 26 28 30
-
-# Gemma stories from the Hub
-python extract_emotion_vectors.py \
-    --model google/gemma-4-E4B-it \
-    --stories-dataset snae/emotion_stories_gemma_4_4B \
-    --output-dir output_gemma/emotion_vectors \
-    --layers 17 19 27 28 29
-```
-
-This requires the `datasets` package (`pip install datasets`). Use
-`--stories-split` to select a split other than the default `train`.
-
 ### 3. Analyze Emotion Vectors
 
 ```bash
@@ -215,21 +151,26 @@ python extract_neutral_baseline.py \
 Runs each of the 40 neutral paragraphs in `prompts/neutral_texts.txt` through
 the model separately, using the same masked-mean method as
 `extract_emotion_vectors.py`, and stacks them into a `(40, d_model)` matrix per
-layer at `output_apertus/neutral_basis/layer_{L}_neutral_basis.npy`. This
-script only produces that matrix. To build the true confound-mitigated contrast
-vector for an emotion, run PCA on it, keep the top components explaining 50% of
-variance, and project those out of the raw emotion vector:
+layer at `output_apertus/neutral_basis/layer_{L}_neutral_basis.npy`. Must use
+the same model and layer set as the emotion vectors it corresponds to. This
+script only produces that matrix; the confound-mitigated contrast vector is
+built by the next step.
 
-```python
-u_e = np.load("output_apertus/emotion_vectors/joy/layer_12_resid.npy")
-basis = np.load("output_apertus/neutral_basis/layer_12_neutral_basis.npy")  # (40, d_model)
-_, s, vt = np.linalg.svd(basis, full_matrices=False)
-k = int(np.searchsorted(np.cumsum(s**2) / (s**2).sum(), 0.5)) + 1
-p = vt[:k]                      # (k, d_model), orthonormal
-v_e = u_e - (u_e @ p.T) @ p     # confound-mitigated contrast vector
+### 7. Apply Confound Mitigation
+
+```bash
+python apply_confound_mitigation.py \
+    --vectors-dir output_apertus/emotion_vectors \
+    --layers 12 16 18 20 22 24 26 28 30
 ```
 
-Must use the same model and layer set as the emotion vectors it corresponds to.
+PCA (via SVD) on the neutral basis from step 6, keep the top components
+explaining 50% of variance, and project those out of each raw emotion vector:
+`v_e = u_e - Σ(u_e·p_k)p_k`. Writes `layer_{L}_resid_projected.npy` next to
+each emotion's `layer_{L}_resid.npy`. `analyze_emotion_vectors.py` and
+`analyze_cross_model_geometry.py` (steps 3 and 4 above) automatically prefer
+the projected file when it exists, so run this before them if you want the
+confound-mitigated analysis.
 
 ---
 
@@ -243,17 +184,19 @@ To test whether emotion geometry is consistent across story generators (i.e., ru
 
 ---
 
-## Running on SLURM 
+## Running on SLURM
 
 Update the `--output`, `--error`, and path variables in each `.sbatch` file, then submit:
 
 ```bash
-sbatch slurm/install_transformers_new.sbatch       # once, for Gemma support
-sbatch slurm/run_emotion_stories_apertus.sbatch    # or run_emotion_stories_gemma.sbatch
-sbatch slurm/run_extract_emotion_vectors_apertus.sbatch  # or the gemma / *_gemstories variants
-sbatch slurm/run_extract_neutral_baseline.sbatch   # neutral basis for confound mitigation
-python3 analyze_emotion_vectors.py --vectors-dir ... --output-dir ...  # no .sbatch wrapper, fast enough to run directly
+sbatch slurm/install_transformers_new.sbatch     # once, for Gemma support
+sbatch slurm/run_emotion_stories_apertus.sbatch  # or run_emotion_stories_gemma.sbatch
+sbatch run_extract_emotion_vectors_apertus.sbatch  # or the gemma / *_gemstories variants
+python3 analyze_emotion_vectors.py --vectors-dir ... --output-dir ...  # no .sbatch wrapper — fast enough to run directly
 ```
+
+See the root [README's `.sbatch` script reference](../README.md#sbatch-script-reference)
+for the full list of extraction/analysis job scripts and what each one runs.
 
 All jobs request 1–4 A100 GPUs and 32–64 GB RAM. See individual `.sbatch` files for resource requirements.
 

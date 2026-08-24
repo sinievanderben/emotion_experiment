@@ -107,6 +107,24 @@ def _layer_file(emo_dir: Path, layer: int) -> Path | None:
     return None
 
 
+def _check_projected_coverage(emotion_dirs: list[Path], layers: list[int]) -> None:
+    """
+    Fail if layer_N_resid_projected.npy exists for some emotions but not
+    others at the same layer
+    """
+    for layer in layers:
+        have = [d.name for d in emotion_dirs if (d / f"layer_{layer}_resid_projected.npy").exists()]
+        missing = [d.name for d in emotion_dirs if d.name not in have]
+        if have and missing:
+            raise RuntimeError(
+                f"Layer {layer}: partial confound-mitigation coverage — "
+                f"{len(have)} emotion(s) have layer_{layer}_resid_projected.npy, "
+                f"{len(missing)} don't ({', '.join(sorted(missing))}). Re-run "
+                "apply_confound_mitigation.py for all emotions, or delete the existing "
+                "*_resid_projected.npy files to fall back to raw vectors consistently."
+            )
+
+
 def load_vectors(
     vectors_dir: Path,
     requested_layers: list[int],
@@ -130,6 +148,8 @@ def load_vectors(
                 available_layers.append(layer)
             else:
                 print(f"  WARNING: layer {layer} not found in {vectors_dir.name}, skipping")
+
+    _check_projected_coverage(emotion_dirs, available_layers)
 
     vecs: dict[int, dict[str, np.ndarray]] = {l: {} for l in available_layers}
     for emo_dir in emotion_dirs:

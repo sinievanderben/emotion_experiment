@@ -87,6 +87,24 @@ plt.rcParams.update({
 
 VALENCE_CMAP = plt.get_cmap("RdYlGn")
 
+def _check_projected_coverage(emotion_dirs: list[Path], layers: list[int]) -> None:
+    """
+    Fail if layer_N_resid_projected.npy exists for some emotions but not
+    others at the same layer. 
+    """
+    for layer in layers:
+        have = [d.name for d in emotion_dirs if (d / f"layer_{layer}_resid_projected.npy").exists()]
+        missing = [d.name for d in emotion_dirs if d.name not in have]
+        if have and missing:
+            raise RuntimeError(
+                f"Layer {layer}: partial confound-mitigation coverage — "
+                f"{len(have)} emotion(s) have layer_{layer}_resid_projected.npy, "
+                f"{len(missing)} don't ({', '.join(sorted(missing))}). Re-run "
+                "apply_confound_mitigation.py for all emotions, or delete the existing "
+                "*_resid_projected.npy files to fall back to raw vectors consistently."
+            )
+
+
 def load_vectors(
     vectors_dir: Path,
     layers: list[int],
@@ -107,6 +125,8 @@ def load_vectors(
         if d.is_dir() and _has_rating(d.name)
     ])
 
+    _check_projected_coverage(emotion_dirs, layers)
+
     for emo_dir in emotion_dirs:
         emotion = emo_dir.name
         for layer in layers:
@@ -116,11 +136,11 @@ def load_vectors(
             if path.exists():
                 vecs[layer][emotion] = np.load(path).astype(np.float32)
 
-    first_dir = next((d for d in vectors_dir.iterdir() if d.is_dir()), None)
-    variant = "projected" if (
-        first_dir and (first_dir / f"layer_{layers[0]}_resid_projected.npy").exists()
-    ) else "raw"
-    print(f"Using {variant} residual-stream emotion vectors")
+    for layer in layers:
+        variant = "projected" if any(
+            (d / f"layer_{layer}_resid_projected.npy").exists() for d in emotion_dirs
+        ) else "raw"
+        print(f"  layer {layer}: using {variant} residual-stream emotion vectors")
 
     # Keep only emotions present in every layer
     common = set(vecs[layers[0]].keys())

@@ -4,7 +4,9 @@ Apply PCA-based confound mitigation to emotion vectors, following Sofroniew (202
 
 Input:  {vectors_dir}/<emotion>/layer_{L}_resid.npy           shape (d_model,)
         {neutral_basis_dir}/layer_{L}_neutral_basis.npy       shape (n_paragraphs, d_model)
-Output: {vectors_dir}/<emotion>/layer_{L}_resid_projected.npy shape (d_model,)
+Output: {output_dir or vectors_dir}/<emotion>/layer_{L}_resid_projected.npy shape (d_model,)
+        (default: written in place, next to the raw vector; pass --output-dir to
+        write into a separate directory instead, leaving vectors_dir untouched)
 
 Usage:
     python apply_confound_mitigation.py \
@@ -60,6 +62,11 @@ def main() -> None:
         help="folder with layer_{L}_neutral_basis.npy, as written by extract_neutral_baseline.py "
              "(default: '<vectors-dir's parent>/neutral_basis')",
     )
+    parser.add_argument(
+        "--output-dir", type=Path, default=None,
+        help="folder to write <emotion>/layer_{L}_resid_projected.npy into "
+             "(default: write in place inside vectors_dir, next to the raw vector)",
+    )
     parser.add_argument("--layers", type=int, nargs="+", required=True)
     parser.add_argument(
         "--variance-threshold", type=float, default=0.5,
@@ -98,13 +105,19 @@ def main() -> None:
             f"(>= {args.variance_threshold:.0%} of neutral variance)"
         )
 
-        # remove components 
+        # remove components
         for emo_dir in emotion_dirs:
             vector = np.load(emo_dir / f"layer_{layer}_resid.npy")
             projected = _project_out(vector, components).astype(np.float32)
-            np.save(emo_dir / f"layer_{layer}_resid_projected.npy", projected)
+            if args.output_dir is not None:
+                dest_dir = args.output_dir / emo_dir.name
+                dest_dir.mkdir(parents=True, exist_ok=True)
+            else:
+                dest_dir = emo_dir
+            np.save(dest_dir / f"layer_{layer}_resid_projected.npy", projected)
 
-    print(f"\nDone. Wrote layer_{{L}}_resid_projected.npy next to each emotion's layer_{{L}}_resid.npy")
+    dest_desc = args.output_dir if args.output_dir is not None else "vectors_dir (in place)"
+    print(f"\nDone. Wrote layer_{{L}}_resid_projected.npy under {dest_desc}")
 
 
 if __name__ == "__main__":

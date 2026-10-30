@@ -144,12 +144,18 @@ def extract_emotion_vectors(
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    model = AutoModelForCausalLM.from_pretrained(
-        model_name,
+    load_kwargs = dict(
         torch_dtype=torch.float32,
         device_map={"": device},
         trust_remote_code=True,
     )
+    try:
+        model = AutoModelForCausalLM.from_pretrained(model_name, **load_kwargs)
+    except ValueError:
+        # Apertus 1.5 is multimodal and only registered under the
+        # image-text-to-text auto class; text-only inputs work the same.
+        from transformers import AutoModelForImageTextToText
+        model = AutoModelForImageTextToText.from_pretrained(model_name, **load_kwargs)
     model.eval()
 
     # Gemma 4 nests the text config; fall back to top-level for other models.
